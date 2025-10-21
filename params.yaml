@@ -1,0 +1,55 @@
+# params.yaml - DVC Parameters
+
+parse:
+  pdf_path: "data/fintbx.pdf"
+  output_format: "jsonl"
+  extract_tables: true
+  extract_figures: true
+
+chunking:
+  section_1000:
+    chunk_size: 1000
+    include_heading: true
+    method: "section"
+  
+  section_2000:
+    chunk_size: 2000
+    include_heading: true
+    method: "section"
+  
+  hierarchical_1500:
+    chunk_size: 1500
+    add_context: true
+    method: "hierarchical"
+  
+  type_aware_1500:
+    chunk_size: 1500
+    keep_tables_whole: true
+    method: "type_aware"
+  
+  fixed_overlap_1000:
+    chunk_size: 1000
+    overlap: 200
+    method: "fixed_overlap"
+    separators: ["\n\n", "\n", ". ", " ", ""]
+  
+  hybrid_1500:
+    chunk_size: 1500
+    overlap: 150
+    keep_tables_whole: true
+    method: "hybrid"
+
+embedding:
+  model: "text-embedding-3-small"
+  batch_size: 32
+  dimension: 1536
+
+comparison:
+  metrics:
+    - num_chunks
+    - avg_chunk_size
+    - median_chunk_size
+    - std_chunk_size
+    - min_chunk_size
+    - max_chunk_size
+    - coverage
