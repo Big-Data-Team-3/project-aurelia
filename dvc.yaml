@@ -1,190 +1,27 @@
-# DVC Pipeline for Document Parsing and Chunking Experiments
-# Run with: dvc repro
-
 stages:
-  # Stage 1: Parse PDF with Docling
-  parse_pdf:
-    cmd: python src/docling_parser.py --input data/fintbx.pdf --output data/final/docling_blocks.jsonl
+  docli_parsing:
+    cmd: python pipelines/docli_parsing.py
     deps:
-      - data/fintbx.pdf
-      - src/docling_parser.py
-    params:
-      - parse.pdf_path
-      - parse.output_format
+      - pipelines/docli_parsing.py
+      - data/fintbx_ex.pdf
     outs:
-      - data/final/docling_blocks.jsonl:
-          cache: true
-          persist: true
-    desc: "Parse PDF using Docling to extract structured blocks with metadata"
-
-  # Stage 2: Chunking Experiments
-  
-  # Experiment 1: Section-Based Chunking (1000 chars)
-  chunk_section_1000:
-    cmd: python src/chunking.py 
-      --method section 
-      --input data/final/docling_blocks.jsonl 
-      --output data/chunks/section_1000.jsonl 
-      --chunk-size 1000
-    deps:
       - data/final/docling_blocks.jsonl
-      - src/chunking.py
-    params:
-      - chunking.section_1000.chunk_size
-      - chunking.section_1000.include_heading
-    outs:
-      - data/chunks/section_1000.jsonl:
-          cache: true
-    metrics:
-      - metrics/section_1000.json:
-          cache: false
-    desc: "Section-based chunking with 1000 char limit"
+      - data/final/cleanup_report.json
 
-  # Experiment 2: Section-Based Chunking (2000 chars)
-  chunk_section_2000:
-    cmd: python src/chunking.py 
-      --method section 
-      --input data/final/docling_blocks.jsonl 
-      --output data/chunks/section_2000.jsonl 
-      --chunk-size 2000
+  hybrid_chunking:
+    cmd: python pipelines/processing/hybrid_chunking.py
     deps:
+      - pipelines/processing/hybrid_chunking.py
       - data/final/docling_blocks.jsonl
-      - src/chunking.py
-    params:
-      - chunking.section_2000.chunk_size
-      - chunking.section_2000.include_heading
     outs:
-      - data/chunks/section_2000.jsonl:
-          cache: true
-    metrics:
-      - metrics/section_2000.json:
-          cache: false
-    desc: "Section-based chunking with 2000 char limit"
+      - data/chunking_output/hybrid_intelligent_chunks.jsonl
+      - data/chunking_output/hybrid_intelligent_chunks_for_embedding.jsonl
+      - data/chunking_output/chunk_statistics.csv
 
-  # Experiment 3: Hierarchical Chunking (1500 chars)
-  chunk_hierarchical_1500:
-    cmd: python src/chunking.py 
-      --method hierarchical 
-      --input data/final/docling_blocks.jsonl 
-      --output data/chunks/hierarchical_1500.jsonl 
-      --chunk-size 1500
+  embedding:
+    cmd: python pipelines/embedding.py
     deps:
-      - data/final/docling_blocks.jsonl
-      - src/chunking.py
-    params:
-      - chunking.hierarchical_1500.chunk_size
-      - chunking.hierarchical_1500.add_context
+      - pipelines/embedding.py
+      - data/chunking_output/hybrid_intelligent_chunks_for_embedding.jsonl
     outs:
-      - data/chunks/hierarchical_1500.jsonl:
-          cache: true
-    metrics:
-      - metrics/hierarchical_1500.json:
-          cache: false
-    desc: "Hierarchical chunking with context at 1500 chars"
-
-  # Experiment 4: Type-Aware Chunking (1500 chars)
-  chunk_type_aware_1500:
-    cmd: python src/chunking.py 
-      --method type_aware 
-      --input data/final/docling_blocks.jsonl 
-      --output data/chunks/type_aware_1500.jsonl 
-      --chunk-size 1500
-    deps:
-      - data/final/docling_blocks.jsonl
-      - src/chunking.py
-    params:
-      - chunking.type_aware_1500.chunk_size
-      - chunking.type_aware_1500.keep_tables_whole
-    outs:
-      - data/chunks/type_aware_1500.jsonl:
-          cache: true
-    metrics:
-      - metrics/type_aware_1500.json:
-          cache: false
-    desc: "Type-aware chunking preserving table structure"
-
-  # Experiment 5: Fixed-Size with Overlap (1000 chars, 200 overlap)
-  chunk_fixed_overlap_1000:
-    cmd: python src/chunking.py 
-      --method fixed_overlap 
-      --input data/final/docling_blocks.jsonl 
-      --output data/chunks/fixed_overlap_1000.jsonl 
-      --chunk-size 1000 
-      --overlap 200
-    deps:
-      - data/final/docling_blocks.jsonl
-      - src/chunking.py
-    params:
-      - chunking.fixed_overlap_1000.chunk_size
-      - chunking.fixed_overlap_1000.overlap
-    outs:
-      - data/chunks/fixed_overlap_1000.jsonl:
-          cache: true
-    metrics:
-      - metrics/fixed_overlap_1000.json:
-          cache: false
-    desc: "Fixed-size chunking with 200 char overlap"
-
-  # Experiment 6: Hybrid Intelligent Chunking (1500 chars, 150 overlap)
-  chunk_hybrid_1500:
-    cmd: python src/chunking.py 
-      --method hybrid 
-      --input data/final/docling_blocks.jsonl 
-      --output data/chunks/hybrid_1500.jsonl 
-      --chunk-size 1500 
-      --overlap 150
-    deps:
-      - data/final/docling_blocks.jsonl
-      - src/chunking.py
-    params:
-      - chunking.hybrid_1500.chunk_size
-      - chunking.hybrid_1500.overlap
-      - chunking.hybrid_1500.keep_tables_whole
-    outs:
-      - data/chunks/hybrid_1500.jsonl:
-          cache: true
-    metrics:
-      - metrics/hybrid_1500.json:
-          cache: false
-    desc: "Hybrid chunking with semantic + size-based splitting"
-
-  # Stage 3: Compare Experiments
-  compare_chunks:
-    cmd: python src/compare_chunks.py 
-      --input-dir data/chunks 
-      --output metrics/chunk_comparison.json
-    deps:
-      - data/chunks/section_1000.jsonl
-      - data/chunks/section_2000.jsonl
-      - data/chunks/hierarchical_1500.jsonl
-      - data/chunks/type_aware_1500.jsonl
-      - data/chunks/fixed_overlap_1000.jsonl
-      - data/chunks/hybrid_1500.jsonl
-      - src/compare_chunks.py
-    metrics:
-      - metrics/chunk_comparison.json:
-          cache: false
-    plots:
-      - plots/chunk_size_distribution.json:
-          cache: false
-          x: method
-          y: avg_chunk_size
-      - plots/chunk_count.json:
-          cache: false
-          x: method
-          y: total_chunks
-    desc: "Compare all chunking methods and generate metrics"
-
-# Optional: Embedding generation stage
-  # generate_embeddings:
-  #   cmd: python src/generate_embeddings.py 
-  #     --chunks data/chunks/hybrid_1500.jsonl 
-  #     --output data/embeddings/hybrid_1500.npy
-  #   deps:
-  #     - data/chunks/hybrid_1500.jsonl
-  #     - src/generate_embeddings.py
-  #   params:
-  #     - embedding.model
-  #     - embedding.batch_size
-  #   outs:
-  #     - data/embeddings/hybrid_1500.npy
+      - data/embedding_output/embedding_pipeline_report.json
