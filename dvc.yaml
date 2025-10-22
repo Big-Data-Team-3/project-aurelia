@@ -1,0 +1,27 @@
+stages:
+  docli_parsing:
+    cmd: python pipelines/docli_parsing.py
+    deps:
+      - pipelines/docli_parsing.py
+      - data/fintbx_ex.pdf
+    outs:
+      - data/final/docling_blocks.jsonl
+      - data/final/cleanup_report.json
+
+  hybrid_chunking:
+    cmd: python pipelines/processing/hybrid_chunking.py
+    deps:
+      - pipelines/processing/hybrid_chunking.py
+      - data/final/docling_blocks.jsonl
+    outs:
+      - data/chunking_output/hybrid_intelligent_chunks.jsonl
+      - data/chunking_output/hybrid_intelligent_chunks_for_embedding.jsonl
+      - data/chunking_output/chunk_statistics.csv
+
+  embedding:
+    cmd: python pipelines/embedding.py
+    deps:
+      - pipelines/embedding.py
+      - data/chunking_output/hybrid_intelligent_chunks_for_embedding.jsonl
+    outs:
+      - data/embedding_output/embedding_pipeline_report.json
