@@ -1,27 +1,38 @@
 stages:
-  docli_parsing:
-    cmd: python pipelines/docli_parsing.py
+  # Stage 1: Enhanced PyMuPDF Parsing
+  pymupdf_parsing:
+    cmd: python pipelines/pymupdf_parser.py
     deps:
-      - pipelines/docli_parsing.py
-      - data/fintbx_ex.pdf
+      - pipelines/pymupdf_parser.py
+      - data/fintbx.pdf
     outs:
-      - data/final/docling_blocks.jsonl
-      - data/final/cleanup_report.json
+      - data/enhanced_pymupdf_output/enhanced_pymupdf_blocks.jsonl
+      - data/enhanced_pymupdf_output/enhanced_pymupdf_cleanup_report.json
 
+  # Stage 2: Hybrid Intelligent Chunking
   hybrid_chunking:
     cmd: python pipelines/processing/hybrid_chunking.py
     deps:
       - pipelines/processing/hybrid_chunking.py
-      - data/final/docling_blocks.jsonl
+      - data/enhanced_pymupdf_output/enhanced_pymupdf_blocks.jsonl
     outs:
-      - data/chunking_output/hybrid_intelligent_chunks.jsonl
-      - data/chunking_output/hybrid_intelligent_chunks_for_embedding.jsonl
-      - data/chunking_output/chunk_statistics.csv
+      - data/chunking_output_pymudpdf/hybrid_intelligent_chunks.jsonl
+      - data/chunking_output_pymudpdf/hybrid_intelligent_chunks_for_embedding.jsonl
+      - data/chunking_output_pymudpdf/chunk_statistics.csv
 
+  # Stage 3: Embedding & Vector Storage
   embedding:
     cmd: python pipelines/embedding.py
     deps:
       - pipelines/embedding.py
-      - data/chunking_output/hybrid_intelligent_chunks_for_embedding.jsonl
+      - data/chunking_output_pymudpdf/hybrid_intelligent_chunks_for_embedding.jsonl
     outs:
-      - data/embedding_output/embedding_pipeline_report.json
+      - data/embedding_output_pymudpdf/embedding_pipeline_report.json
+
+  # Optional: Run RAG Query Test (no outputs, just testing)
+  test_rag:
+    cmd: python pipelines/test_rag.py --query "What is portfolio optimization?"
+    deps:
+      - pipelines/test_rag.py
+      - data/embedding_output_pymudpdf/embedding_pipeline_report.json
+    always_changed: true
