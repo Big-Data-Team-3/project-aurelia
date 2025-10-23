@@ -44,13 +44,21 @@ class HybridSearchService:
             logger.info("Initializing BM25 index from Pinecone data...")
             start_time = time.time()
             
+            # Check if vector search service is healthy first
+            if not await vector_search_service.health_check():
+                logger.error("Vector search service is not healthy - cannot initialize BM25 index")
+                return
+            
             # Get all documents from Pinecone index
-            # Note: In a production system, you might want to cache this or use a separate keyword index
             stats = await vector_search_service.get_index_stats()
             total_vectors = stats.get('total_vector_count', 0)
             
+            logger.info(f"Found {total_vectors} vectors in Pinecone index")
+            
             if total_vectors == 0:
-                logger.warning("No vectors found in Pinecone index")
+                logger.warning("No vectors found in Pinecone index - BM25 index will be empty")
+                # Still mark as initialized to prevent repeated attempts
+                self._index_initialized = True
                 return
             
             # For now, we'll build the BM25 index on-demand during searches
@@ -60,7 +68,8 @@ class HybridSearchService:
             
         except Exception as e:
             logger.error(f"Failed to initialize BM25 index: {e}")
-            raise
+            # Don't raise the exception - allow the service to continue with vector-only search
+            logger.warning("Hybrid search will fall back to vector-only search")
     
     def _preprocess_text(self, text: str) -> List[str]:
         """Preprocess text for BM25 indexing"""

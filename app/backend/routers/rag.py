@@ -14,10 +14,13 @@ import logging
 from models.rag_models import (
     RAGQuery, RAGResponse, SearchOnlyQuery, SearchResponse,
     RerankQuery, RerankResponse, RAGHealthCheck, RAGConfig,
-    ErrorResponse, SearchStrategy, ChatMessage, StreamingChunk
+    ErrorResponse, SearchStrategy, ChatMessage, StreamingChunk,
+    CreateSessionRequest, CreateSessionResponse, SessionMessageRequest,
+    SessionMessageResponse, SessionListResponse, ChatSession
 )
 from services.rag_service import rag_service
 from services.reranking import reranking_service
+from services.session_service import session_service
 from config.rag_config import rag_config, SearchStrategies
 
 
@@ -407,6 +410,223 @@ def _get_strategy_components(config: Dict[str, bool]) -> List[str]:
     if config.get("use_rrf"):
         components.append("RRF Fusion")
     return components
+
+
+# Session-based chat endpoints
+@router.post("/chat/session", response_model=CreateSessionResponse)
+async def create_chat_session(
+    request: CreateSessionRequest = CreateSessionRequest(),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a new chat session for persistent conversation
+    
+    Creates a session with configurable TTL and context window management.
+    """
+    try:
+        # Use current user ID if not provided in request
+        user_id = request.user_id or current_user.get("user_id", "anonymous")
+        
+        session = await session_service.create_session(
+            user_id=user_id,
+            ttl_hours=request.ttl_hours
+        )
+        
+        logger.info(f"Created session {session.session_id} for user {user_id}")
+        
+        return CreateSessionResponse(
+            session_id=session.session_id,
+            user_id=session.user_id,
+            expires_at=session.expires_at,
+            created_at=session.created_at
+        )
+        
+    except Exception as e:
+        logger.error(f"Session creation failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create session: {str(e)}"
+        )
+
+
+@router.post("/chat/session/{session_id}/message", response_model=SessionMessageResponse)
+async def send_session_message(
+    session_id: str,
+    message_request: SessionMessageRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Send a message to an existing chat session
+    
+    Processes the message through PII filtering, intent classification,
+    and routes to RAG or ChatGPT based on analysis.
+    """
+    try:
+        logger.info(f"Processing message for session {session_id}")
+        
+        response = await rag_service.session_message(session_id, message_request)
+        
+        logger.info(f"Session message processed: {response.routing_decision} routing")
+        return response
+        
+    except ValueError as e:
+        # Session not found or expired
+        logger.warning(f"Session error: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Session message processing failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Message processing failed: {str(e)}"
+        )
+
+
+@router.get("/chat/session/{session_id}", response_model=ChatSession)
+async def get_session(
+    session_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get session details and conversation history
+    
+    Returns the complete session with all messages and metadata.
+    """
+    try:
+        session = await session_service.get_session(session_id)
+        
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {session_id} not found or expired"
+            )
+        
+        return session
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get session {session_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve session: {str(e)}"
+        )
+
+
+@router.delete("/chat/session/{session_id}")
+async def delete_session(
+    session_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Delete a chat session and all its data
+    
+    Permanently removes the session and conversation history.
+    """
+    try:
+        deleted = await session_service.delete_session(session_id)
+        
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {session_id} not found"
+            )
+        
+        logger.info(f"Deleted session {session_id}")
+        return {"message": f"Session {session_id} deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete session {session_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete session: {str(e)}"
+        )
+
+
+@router.get("/chat/sessions", response_model=SessionListResponse)
+async def list_user_sessions(
+    active_only: bool = Query(True, description="Only return active (non-expired) sessions"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    List all sessions for the current user
+    
+    Returns sessions ordered by most recently updated first.
+    """
+    try:
+        user_id = current_user.get("user_id", "anonymous")
+        sessions = await session_service.get_user_sessions(user_id, active_only)
+        
+        return SessionListResponse(
+            sessions=sessions,
+            total_count=len(sessions)
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to list sessions for user: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list sessions: {str(e)}"
+        )
+
+
+@router.post("/chat/session/{session_id}/extend")
+async def extend_session_ttl(
+    session_id: str,
+    additional_hours: int = Query(24, ge=1, le=168, description="Hours to add to TTL"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Extend session time-to-live
+    
+    Adds additional time to prevent session expiration.
+    """
+    try:
+        session = await session_service.extend_session_ttl(session_id, additional_hours)
+        
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {session_id} not found"
+            )
+        
+        logger.info(f"Extended session {session_id} TTL by {additional_hours} hours")
+        return {
+            "message": f"Session TTL extended by {additional_hours} hours",
+            "new_expires_at": session.expires_at
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to extend session TTL: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to extend session: {str(e)}"
+        )
+
+
+@router.get("/chat/stats")
+async def get_session_stats(current_user: dict = Depends(get_current_user)):
+    """
+    Get session statistics for monitoring and debugging
+    
+    Returns system-wide session statistics.
+    """
+    try:
+        stats = await session_service.get_session_stats()
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Failed to get session stats: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get statistics: {str(e)}"
+        )
 
 
 # Exception handlers removed - APIRouter doesn't support exception_handler

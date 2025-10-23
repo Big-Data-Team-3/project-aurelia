@@ -157,6 +157,88 @@ class ChatMessage(BaseModel):
 class ChatSession(BaseModel):
     """Chat session model"""
     session_id: str = Field(..., description="Unique session identifier")
+    user_id: str = Field(..., description="User identifier")
     messages: List[ChatMessage] = Field(default_factory=list, description="Conversation history")
     created_at: datetime = Field(default_factory=datetime.now, description="Session creation time")
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update time")
+    expires_at: datetime = Field(..., description="Session expiration time")
+    max_context_messages: int = Field(20, description="Maximum messages to keep in context")
+
+
+# Session-related request/response models
+class CreateSessionRequest(BaseModel):
+    """Request to create a new chat session"""
+    user_id: Optional[str] = Field(None, description="User identifier (auto-generated if not provided)")
+    ttl_hours: Optional[int] = Field(None, description="Session TTL in hours (uses default if not provided)")
+
+
+class CreateSessionResponse(BaseModel):
+    """Response for session creation"""
+    session_id: str = Field(..., description="Created session identifier")
+    user_id: str = Field(..., description="User identifier")
+    expires_at: datetime = Field(..., description="Session expiration time")
+    created_at: datetime = Field(..., description="Session creation time")
+
+
+class SessionMessageRequest(BaseModel):
+    """Request to send a message to a session"""
+    message: str = Field(..., min_length=1, max_length=2000, description="User message")
+    strategy: SearchStrategy = Field(SearchStrategy.RRF_FUSION, description="Search strategy to use")
+    temperature: float = Field(0.1, ge=0.0, le=1.0, description="Generation temperature")
+    max_tokens: int = Field(1000, ge=100, le=2000, description="Maximum tokens in response")
+
+
+class SessionMessageResponse(BaseModel):
+    """Response for session message"""
+    session_id: str = Field(..., description="Session identifier")
+    user_message: ChatMessage = Field(..., description="User message that was sent")
+    assistant_message: ChatMessage = Field(..., description="Assistant response")
+    query_processing: Dict[str, Any] = Field(default_factory=dict, description="Query processing metadata")
+    routing_decision: str = Field(..., description="RAG or ChatGPT routing decision")
+    sources: List[SearchResult] = Field(default_factory=list, description="Sources used (if RAG)")
+    total_time_ms: float = Field(..., description="Total processing time")
+
+
+class SessionListResponse(BaseModel):
+    """Response for listing user sessions"""
+    sessions: List[ChatSession] = Field(default_factory=list, description="User sessions")
+    total_count: int = Field(..., description="Total number of sessions")
+
+
+# PII Detection models
+class PIIDetectionResult(BaseModel):
+    """Result of PII detection"""
+    has_pii: bool = Field(..., description="Whether PII was detected")
+    pii_types: List[str] = Field(default_factory=list, description="Types of PII found")
+    masked_query: str = Field(..., description="Query with PII masked/removed")
+    confidence_score: float = Field(..., description="Confidence score for PII detection")
+    detected_patterns: List[Dict[str, Any]] = Field(default_factory=list, description="Detected PII patterns")
+
+
+class QueryProcessingResult(BaseModel):
+    """Result of query processing pipeline"""
+    original_query: str = Field(..., description="Original user query")
+    processed_query: str = Field(..., description="Processed query after PII filtering")
+    pii_detection: PIIDetectionResult = Field(..., description="PII detection results")
+    intent_classification: Dict[str, Any] = Field(default_factory=dict, description="Intent classification results")
+    routing_decision: str = Field(..., description="RAG or ChatGPT routing decision")
+    expanded_queries: List[str] = Field(default_factory=list, description="Expanded query variations")
+    processing_time_ms: float = Field(..., description="Total processing time")
+
+
+# Intent classification
+class IntentType(str, Enum):
+    """Types of user intents"""
+    FACTUAL_QUERY = "factual_query"  # Document-based questions
+    CONVERSATIONAL = "conversational"  # General chat
+    GREETING = "greeting"  # Greetings and pleasantries
+    CLARIFICATION = "clarification"  # Follow-up questions
+    TASK_ORIENTED = "task_oriented"  # Specific tasks or instructions
+
+
+class IntentClassificationResult(BaseModel):
+    """Result of intent classification"""
+    predicted_intent: IntentType = Field(..., description="Predicted intent type")
+    confidence_score: float = Field(..., description="Confidence score for prediction")
+    should_use_rag: bool = Field(..., description="Whether to route to RAG or ChatGPT")
+    reasoning: str = Field(..., description="Explanation for the routing decision")

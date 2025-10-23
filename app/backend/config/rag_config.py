@@ -4,7 +4,7 @@ Centralized configuration for all RAG components
 """
 
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from pathlib import Path
@@ -58,6 +58,28 @@ class RAGConfig(BaseSettings):
     # Logging
     log_level: str = Field("INFO", env="LOG_LEVEL")
     enable_query_logging: bool = Field(True, env="ENABLE_QUERY_LOGGING")
+    
+    # Session Management Configuration
+    session_default_ttl_hours: int = Field(24, env="SESSION_DEFAULT_TTL_HOURS")
+    session_max_context_messages: int = Field(20, env="SESSION_MAX_CONTEXT_MESSAGES")
+    session_cleanup_interval_minutes: int = Field(60, env="SESSION_CLEANUP_INTERVAL_MINUTES")
+    
+    # PII Detection Configuration
+    enable_pii_detection: bool = Field(True, env="ENABLE_PII_DETECTION")
+    pii_strict_mode: bool = Field(False, env="PII_STRICT_MODE")
+    pii_confidence_threshold: float = Field(0.7, env="PII_CONFIDENCE_THRESHOLD")
+    pii_rejection_threshold: float = Field(0.9, env="PII_REJECTION_THRESHOLD")
+    
+    # Query Processing Configuration
+    enable_query_processing: bool = Field(True, env="ENABLE_QUERY_PROCESSING")
+    enable_intent_classification: bool = Field(True, env="ENABLE_INTENT_CLASSIFICATION")
+    enable_query_expansion: bool = Field(True, env="ENABLE_QUERY_EXPANSION")
+    intent_confidence_threshold: float = Field(0.6, env="INTENT_CONFIDENCE_THRESHOLD")
+    
+    # Routing Configuration
+    default_routing_strategy: str = Field("auto", env="DEFAULT_ROUTING_STRATEGY")  # auto, rag, chatgpt
+    rag_keyword_threshold: float = Field(0.1, env="RAG_KEYWORD_THRESHOLD")
+    force_rag_for_factual: bool = Field(True, env="FORCE_RAG_FOR_FACTUAL")
     
     class Config:
         # Use absolute path to ensure .env file is found regardless of working directory
@@ -143,6 +165,73 @@ class SearchStrategies:
             }
         }
         return configs.get(strategy, configs[cls.VECTOR_ONLY])
+
+
+class QueryProcessingConfig:
+    """Configuration for query processing pipeline"""
+    
+    # PII patterns and their configurations
+    PII_PATTERNS = {
+        "email": {
+            "pattern": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            "replacement": "[EMAIL]",
+            "confidence": 0.95,
+            "description": "Email address"
+        },
+        "phone_us": {
+            "pattern": r'\b(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})\b',
+            "replacement": "[PHONE]",
+            "confidence": 0.90,
+            "description": "US phone number"
+        },
+        "ssn": {
+            "pattern": r'\b(?!000|666|9\d{2})\d{3}[-.\s]?(?!00)\d{2}[-.\s]?(?!0000)\d{4}\b',
+            "replacement": "[SSN]",
+            "confidence": 0.95,
+            "description": "Social Security Number"
+        }
+    }
+    
+    # Intent classification keywords
+    INTENT_KEYWORDS = {
+        "factual_query": [
+            "what", "how", "when", "where", "why", "who", "which", "define", "explain",
+            "describe", "calculate", "analyze", "compare", "difference", "between"
+        ],
+        "conversational": [
+            "think", "opinion", "feel", "believe", "prefer", "like", "dislike",
+            "recommend", "suggest", "advice", "help me", "assist", "support"
+        ],
+        "greeting": [
+            "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+            "greetings", "howdy", "what's up", "how are you", "nice to meet"
+        ]
+    }
+    
+    # RAG routing keywords
+    RAG_KEYWORDS = [
+        "document", "report", "paper", "study", "research", "analysis",
+        "financial", "finance", "investment", "revenue", "profit", "market",
+        "according to", "based on", "mentioned in", "states that", "shows that"
+    ]
+
+
+class SessionConfig:
+    """Configuration for session management"""
+    
+    DEFAULT_TTL_HOURS = 24
+    MAX_CONTEXT_MESSAGES = 20
+    CLEANUP_INTERVAL_MINUTES = 60
+    MAX_SESSIONS_PER_USER = 10
+    
+    @classmethod
+    def get_session_settings(cls, config: 'RAGConfig') -> Dict[str, Any]:
+        """Get session settings from RAG config"""
+        return {
+            "default_ttl_hours": config.session_default_ttl_hours,
+            "max_context_messages": config.session_max_context_messages,
+            "cleanup_interval_minutes": config.session_cleanup_interval_minutes
+        }
 
 
 # Load environment variables explicitly if needed

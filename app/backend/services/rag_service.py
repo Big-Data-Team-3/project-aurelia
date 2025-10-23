@@ -11,7 +11,8 @@ import logging
 from config.rag_config import rag_config, SearchStrategies
 from models.rag_models import (
     SearchResult, RAGQuery, RAGResponse, SearchResponse, 
-    SearchStrategy, ChatMessage, StreamingChunk
+    SearchStrategy, ChatMessage, StreamingChunk, ChatSession,
+    SessionMessageRequest, SessionMessageResponse, QueryProcessingResult
 )
 from services.vector_search import vector_search_service
 from services.generation import generation_service
@@ -19,6 +20,9 @@ from services.reranking import reranking_service
 from services.wikipedia import wikipedia_service
 from services.hybrid_search import hybrid_search_service
 from services.fusion import fusion_service
+from services.query_processor import query_processor
+from services.chatgpt_service import chatgpt_service
+from services.session_service import session_service
 
 
 logger = logging.getLogger(__name__)
@@ -48,9 +52,194 @@ class RAGService:
             logger.error(f"Failed to initialize RAG services: {e}")
             raise
     
+    async def session_message(
+        self, 
+        session_id: str, 
+        message_request: SessionMessageRequest
+    ) -> SessionMessageResponse:
+        """
+        Process a message within a session context with full query processing pipeline
+        
+        Args:
+            session_id: Session identifier
+            message_request: Message request with query and parameters
+            
+        Returns:
+            SessionMessageResponse with processed message and response
+        """
+        start_time = time.time()
+        
+        try:
+            await self.initialize_services()
+            
+            # Get session
+            session = await session_service.get_session(session_id)
+            if not session:
+                raise ValueError(f"Session {session_id} not found or expired")
+            
+            # Step 1: Process query through pipeline (PII filtering, intent classification, etc.)
+            conversation_history = session.messages[-10:] # Last 10 messages for context
+            
+            query_processing_result = await query_processor.process_query(
+                message_request.message, 
+                conversation_history
+            )
+            
+            # Create user message
+            user_message = ChatMessage(
+                role="user",
+                content=query_processing_result.processed_query
+            )
+            
+            # Step 2: Route to RAG or ChatGPT based on processing result
+            if query_processing_result.routing_decision == "RAG":
+                assistant_response, sources = await self._process_rag_query(
+                    query_processing_result.processed_query,
+                    conversation_history,
+                    message_request.strategy,
+                    message_request.temperature,
+                    message_request.max_tokens,
+                    query_processing_result.expanded_queries
+                )
+            else:
+                assistant_response, _ = await chatgpt_service.generate_response(
+                    query_processing_result.processed_query,
+                    conversation_history,
+                    message_request.temperature,
+                    message_request.max_tokens
+                )
+                sources = []
+            
+            # Create assistant message
+            assistant_message = ChatMessage(
+                role="assistant",
+                content=assistant_response,
+                sources=sources
+            )
+            
+            # Step 3: Update session with both messages
+            await session_service.update_session(session_id, user_message)
+            await session_service.update_session(session_id, assistant_message)
+            
+            total_time = (time.time() - start_time) * 1000
+            
+            return SessionMessageResponse(
+                session_id=session_id,
+                user_message=user_message,
+                assistant_message=assistant_message,
+                query_processing={
+                    "pii_detected": query_processing_result.pii_detection.has_pii,
+                    "pii_types": query_processing_result.pii_detection.pii_types,
+                    "intent": query_processing_result.intent_classification["predicted_intent"],
+                    "confidence": query_processing_result.intent_classification["confidence_score"],
+                    "expanded_queries": query_processing_result.expanded_queries,
+                    "processing_time_ms": query_processing_result.processing_time_ms
+                },
+                routing_decision=query_processing_result.routing_decision,
+                sources=sources,
+                total_time_ms=total_time
+            )
+            
+        except Exception as e:
+            logger.error(f"Session message processing failed: {e}")
+            # Still try to save user message to session
+            try:
+                user_message = ChatMessage(role="user", content=message_request.message)
+                await session_service.update_session(session_id, user_message)
+                
+                error_message = ChatMessage(
+                    role="assistant", 
+                    content="I apologize, but I encountered an error processing your message. Please try again."
+                )
+                await session_service.update_session(session_id, error_message)
+                
+                total_time = (time.time() - start_time) * 1000
+                
+                return SessionMessageResponse(
+                    session_id=session_id,
+                    user_message=user_message,
+                    assistant_message=error_message,
+                    query_processing={"error": str(e)},
+                    routing_decision="error",
+                    sources=[],
+                    total_time_ms=total_time
+                )
+            except Exception as session_error:
+                logger.error(f"Failed to save error to session: {session_error}")
+                raise e
+    
+    async def _process_rag_query(
+        self,
+        query: str,
+        conversation_history: List[ChatMessage],
+        strategy: SearchStrategy,
+        temperature: float,
+        max_tokens: int,
+        expanded_queries: List[str] = None
+    ) -> tuple[str, List[SearchResult]]:
+        """
+        Process a query through the RAG pipeline
+        
+        Args:
+            query: Processed query text
+            conversation_history: Previous conversation messages
+            strategy: Search strategy to use
+            temperature: Generation temperature
+            max_tokens: Maximum tokens
+            expanded_queries: Additional query variations
+            
+        Returns:
+            Tuple of (response text, source results)
+        """
+        # Create RAG query
+        rag_query = RAGQuery(
+            query=query,
+            strategy=strategy,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        
+        # Retrieve documents (potentially using expanded queries)
+        search_results, _ = await self._retrieve_documents(rag_query)
+        
+        # If we have expanded queries and few results, try them
+        if expanded_queries and len(search_results) < 3:
+            for expanded_query in expanded_queries[:2]:  # Try top 2 expansions
+                expanded_rag_query = RAGQuery(
+                    query=expanded_query,
+                    strategy=strategy,
+                    top_k=5  # Fewer results per expansion
+                )
+                additional_results, _ = await self._retrieve_documents(expanded_rag_query)
+                search_results.extend(additional_results)
+        
+        # Remove duplicates and limit results
+        seen_ids = set()
+        unique_results = []
+        for result in search_results:
+            if result.id not in seen_ids:
+                unique_results.append(result)
+                seen_ids.add(result.id)
+        
+        search_results = unique_results[:rag_query.rerank_top_k]
+        
+        # Generate response with conversation history
+        if search_results:
+            answer, _ = await generation_service.generate_with_conversation_history(
+                query=query,
+                context_results=search_results,
+                conversation_history=conversation_history,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+        else:
+            answer = "I couldn't find relevant information to answer your question. Please try rephrasing your query or asking about a different topic."
+        
+        return answer, search_results
+    
     async def query(self, rag_query: RAGQuery) -> RAGResponse:
         """
-        Main RAG query method combining retrieval and generation
+        Main RAG query method with PII filtering and intelligent routing
         
         Args:
             rag_query: RAG query parameters
@@ -63,28 +252,100 @@ class RAGService:
         try:
             await self.initialize_services()
             
-            # Step 1: Retrieve relevant documents
-            search_results, retrieval_time = await self._retrieve_documents(rag_query)
+            # Step 1: Process query through pipeline (PII filtering, intent classification, etc.)
+            query_processing_result = await query_processor.process_query(
+                rag_query.query, 
+                []  # No conversation history in this method
+            )
             
-            # Step 2: Apply Wikipedia fallback if needed
-            if (rag_query.enable_wikipedia_fallback and 
-                len(search_results) < rag_query.rerank_top_k):
+            # Step 2: Route based on processing result
+            if query_processing_result.routing_decision == "ChatGPT":
+                # Use ChatGPT service for conversational queries
+                answer, generation_time = await chatgpt_service.generate_response(
+                    query_processing_result.processed_query,
+                    [],  # No conversation history in this method
+                    rag_query.temperature,
+                    rag_query.max_tokens
+                )
+                
+                total_time = (time.time() - start_time) * 1000
+                
+                return RAGResponse(
+                    query=rag_query.query,
+                    answer=answer,
+                    sources=[],
+                    strategy_used=rag_query.strategy,
+                    metadata={
+                        'routing_decision': 'ChatGPT',
+                        'pii_detected': query_processing_result.pii_detection.has_pii,
+                        'pii_types': query_processing_result.pii_detection.pii_types,
+                        'intent': query_processing_result.intent_classification["predicted_intent"],
+                        'intent_confidence': query_processing_result.intent_classification["confidence_score"],
+                        'expanded_queries': query_processing_result.expanded_queries,
+                        'processing_time_ms': query_processing_result.processing_time_ms,
+                        'original_query': rag_query.query,
+                        'processed_query': query_processing_result.processed_query
+                    },
+                    generation_time_ms=generation_time,
+                    total_time_ms=total_time
+                )
+            
+            # Step 3: Continue with RAG pipeline for document-based queries
+            # Use processed query (with PII filtered) for retrieval
+            processed_rag_query = RAGQuery(
+                query=query_processing_result.processed_query,
+                strategy=rag_query.strategy,
+                top_k=rag_query.top_k,
+                rerank_top_k=rag_query.rerank_top_k,
+                include_sources=rag_query.include_sources,
+                enable_wikipedia_fallback=rag_query.enable_wikipedia_fallback,
+                temperature=rag_query.temperature,
+                max_tokens=rag_query.max_tokens
+            )
+            
+            # Retrieve documents using processed query
+            search_results, retrieval_time = await self._retrieve_documents(processed_rag_query)
+            
+            # Try expanded queries if we have few results
+            if query_processing_result.expanded_queries and len(search_results) < 3:
+                for expanded_query in query_processing_result.expanded_queries[:2]:  # Try top 2 expansions
+                    expanded_rag_query = RAGQuery(
+                        query=expanded_query,
+                        strategy=rag_query.strategy,
+                        top_k=5  # Fewer results per expansion
+                    )
+                    additional_results, _ = await self._retrieve_documents(expanded_rag_query)
+                    search_results.extend(additional_results)
+            
+            # Remove duplicates and limit results
+            seen_ids = set()
+            unique_results = []
+            for result in search_results:
+                if result.id not in seen_ids:
+                    unique_results.append(result)
+                    seen_ids.add(result.id)
+            
+            search_results = unique_results[:processed_rag_query.rerank_top_k]
+            
+            # Apply Wikipedia fallback if needed
+            if (processed_rag_query.enable_wikipedia_fallback and 
+                len(search_results) < processed_rag_query.rerank_top_k):
                 
                 wiki_results, wiki_time = await self._apply_wikipedia_fallback(
-                    rag_query.query, 
+                    query_processing_result.processed_query, 
                     search_results,
-                    rag_query.top_k - len(search_results)
+                    processed_rag_query.top_k - len(search_results)
                 )
                 search_results.extend(wiki_results)
                 retrieval_time += wiki_time
             
-            # Step 3: Generate response
+            # Generate response
             if search_results:
                 answer, generation_time = await generation_service.generate_response(
-                    query=rag_query.query,
-                    context_results=search_results[:rag_query.rerank_top_k],
-                    temperature=rag_query.temperature,
-                    max_tokens=rag_query.max_tokens
+                    query=query_processing_result.processed_query,
+                    context_results=search_results[:processed_rag_query.rerank_top_k],
+                    temperature=processed_rag_query.temperature,
+                    max_tokens=processed_rag_query.max_tokens
                 )
             else:
                 answer = "I couldn't find relevant information to answer your question. Please try rephrasing your query or asking about a different topic."
@@ -96,12 +357,21 @@ class RAGService:
             response = RAGResponse(
                 query=rag_query.query,
                 answer=answer,
-                sources=search_results[:rag_query.rerank_top_k] if rag_query.include_sources else [],
+                sources=search_results[:processed_rag_query.rerank_top_k] if processed_rag_query.include_sources else [],
                 strategy_used=rag_query.strategy,
                 metadata={
+                    'routing_decision': 'RAG',
+                    'pii_detected': query_processing_result.pii_detection.has_pii,
+                    'pii_types': query_processing_result.pii_detection.pii_types,
+                    'intent': query_processing_result.intent_classification["predicted_intent"],
+                    'intent_confidence': query_processing_result.intent_classification["confidence_score"],
+                    'expanded_queries': query_processing_result.expanded_queries,
+                    'processing_time_ms': query_processing_result.processing_time_ms,
+                    'original_query': rag_query.query,
+                    'processed_query': query_processing_result.processed_query,
                     'total_sources_found': len(search_results),
-                    'sources_used_for_generation': min(len(search_results), rag_query.rerank_top_k),
-                    'wikipedia_fallback_used': rag_query.enable_wikipedia_fallback and any(
+                    'sources_used_for_generation': min(len(search_results), processed_rag_query.rerank_top_k),
+                    'wikipedia_fallback_used': processed_rag_query.enable_wikipedia_fallback and any(
                         r.source_type.value == 'wikipedia' for r in search_results
                     )
                 },
@@ -110,7 +380,7 @@ class RAGService:
                 total_time_ms=total_time
             )
             
-            logger.info(f"RAG query completed in {total_time:.2f}ms")
+            logger.info(f"RAG query completed in {total_time:.2f}ms with {query_processing_result.routing_decision} routing")
             return response
             
         except Exception as e:

@@ -113,6 +113,91 @@ class GenerationService:
             logger.error(f"Generation failed: {e}")
             raise
     
+    async def generate_with_conversation_history(
+        self,
+        query: str,
+        context_results: List[SearchResult],
+        conversation_history: List[ChatMessage],
+        temperature: float = None,
+        max_tokens: int = None
+    ) -> tuple[str, float]:
+        """
+        Generate response with conversation history context
+        
+        Args:
+            query: Current user query
+            context_results: Retrieved context from RAG
+            conversation_history: Previous conversation messages
+            temperature: Generation temperature
+            max_tokens: Maximum tokens
+            
+        Returns:
+            Tuple of (generated_text, generation_time_ms)
+        """
+        start_time = time.time()
+        
+        try:
+            temp = temperature if temperature is not None else self.config.temperature
+            max_tok = max_tokens if max_tokens is not None else self.config.max_tokens
+            
+            # Format context from search results
+            context = self._format_context(context_results)
+            
+            # Build conversation-aware prompt
+            conversation_context = ""
+            if conversation_history:
+                recent_messages = conversation_history[-5:]
+                context_parts = []
+                for msg in recent_messages:
+                    if hasattr(msg, 'role'):
+                        role, content = msg.role, msg.content
+                    else:
+                        role, content = msg.get('role', 'user'), msg.get('content', '')
+                    context_parts.append(f"{role.title()}: {content}")
+                conversation_context = "\n".join(context_parts)
+                logger.debug(f"Built conversation context with {len(recent_messages)} messages")
+            # Enhanced prompt with conversation awareness
+            else:
+                logger.debug("No conversation history available.")
+            system_prompt = f"""You are a financial analysis assistant with access to a comprehensive knowledge base.
+
+    Context from documents:
+    {context}
+
+    Recent conversation:
+    {conversation_context}
+
+    Instructions:
+    - Use the provided context to answer the user's question accurately
+    - Reference the conversation history to maintain continuity
+    - If the context doesn't contain relevant information, say so clearly
+    - Provide specific examples and page references when available
+    - Maintain the conversational flow from previous messages"""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query}
+            ]
+            
+            response = self.client.chat.completions.create(
+                model=self.config.generation_model,
+                messages=messages,
+                temperature=temp,
+                max_tokens=max_tok,
+                timeout=self.config.request_timeout
+            )
+            
+            generated_text = response.choices[0].message.content
+            generation_time = (time.time() - start_time) * 1000
+            
+            logger.debug(f"Generated response with conversation history in {generation_time:.2f}ms")
+            return generated_text, generation_time
+            
+        except Exception as e:
+            logger.error(f"Generation with conversation history failed: {e}")
+            generation_time = (time.time() - start_time) * 1000
+            return "I apologize, but I'm having trouble generating a response right now. Please try again.", generation_time
+
     async def generate_streaming_response(
         self,
         query: str,
@@ -170,7 +255,7 @@ class GenerationService:
             logger.error(f"Streaming generation failed: {e}")
             yield f"Error generating response: {str(e)}"
     
-    async def generate_with_conversation_history(
+    async def generate_response_with_conversation_history(
         self,
         query: str,
         context_results: List[SearchResult],
