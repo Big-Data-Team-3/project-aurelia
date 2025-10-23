@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "aiofiles>=25.1.0",
     "apache-airflow>=3.0.6",
     "docling>=2.57.0",
     "fastapi>=0.119.0",
@@ -17,6 +18,7 @@ dependencies = [
     "pinecone>=7.3.0",
     "pip>=25.2",
     "plotly>=6.3.1",
+    "pypdf2>=3.0.1",
     "python-dotenv>=1.1.1",
     "streamlit>=1.50.0",
     "tiktoken>=0.12.0",
