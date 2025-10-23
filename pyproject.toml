@@ -27,4 +27,5 @@ dependencies = [
     "tomli>=2.3.0",
     "uvicorn>=0.37.0",
     "wikipedia>=1.4.0",
+    "pymupdf>=1.23.0"
 ]
