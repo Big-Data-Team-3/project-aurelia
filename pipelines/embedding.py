@@ -19,8 +19,8 @@ import time
 class Config:
     """Pipeline configuration"""
     # Paths
-    CHUNKS_PATH = Path("data/chunking_output/hybrid_intelligent_chunks_for_embedding.jsonl")
-    OUTPUT_DIR = Path("data/embedding_output")
+    CHUNKS_PATH = Path("data/chunking_output_pymudpdf/hybrid_intelligent_chunks_for_embedding.jsonl")
+    OUTPUT_DIR = Path("data/embedding_output_pymudpdf")
     
     # Pinecone settings
     INDEX_NAME = "fintbx-embeddings"
