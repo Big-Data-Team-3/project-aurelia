@@ -10,6 +10,9 @@ import numpy as np
 from enum import Enum
 import json
 
+# Import RAG router
+from routers.rag import router as rag_router
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Project Aurelia API",
@@ -27,6 +30,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include RAG router
+app.include_router(rag_router)
 
 # Pydantic Models
 class StatusEnum(str, Enum):
@@ -103,9 +109,9 @@ def generate_sample_data() -> List[DataItem]:
         item = DataItem(
             id=i,
             name=f"Item {i}",
-            category=np.random.choice(list(CategoryEnum)),
-            score=round(np.random.normal(75, 15), 2),
-            status=np.random.choice(list(StatusEnum), p=[0.7, 0.2, 0.1]),
+            category=np.random.choice([e.value for e in CategoryEnum]),
+            score=round(np.clip(np.random.normal(75, 15), 0, 100), 2),
+            status=np.random.choice([e.value for e in StatusEnum], p=[0.7, 0.2, 0.1]),
             created_at=datetime.now()
         )
         sample_data.append(item)

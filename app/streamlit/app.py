@@ -1,371 +1,250 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, date
-import json
+import requests
+import time
+from typing import Dict, Any
 
 # Page configuration
 st.set_page_config(
-    page_title="Project Aurelia",
-    page_icon="🚀",
+    page_title="Project Aurelia - RAG Chat",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Custom CSS for better chat styling
 st.markdown("""
 <style>
     .main-header {
-        font-size: 3rem;
+        font-size: 2.5rem;
         color: #1f77b4;
         text-align: center;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
     }
-    .metric-card {
-        background-color: #f0f2f6;
+    .chat-container {
+        max-height: 600px;
+        overflow-y: auto;
         padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #1f77b4;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        background-color: #fafafa;
     }
-    .sidebar .sidebar-content {
-        background-color: #f8f9fa;
+    .source-box {
+        background-color: #f0f2f6;
+        padding: 0.5rem;
+        border-radius: 5px;
+        margin: 0.5rem 0;
+        border-left: 3px solid #1f77b4;
     }
 </style>
 """, unsafe_allow_html=True)
 
 def main():
     # Header
-    st.markdown('<h1 class="main-header">🚀 Project Aurelia</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🤖 Project Aurelia RAG Chat</h1>', unsafe_allow_html=True)
+    st.markdown("### Ask questions about financial documents and get AI-powered answers")
     
-    # Sidebar navigation
-    st.sidebar.title("Navigation")
-    page = st.sidebar.selectbox(
-        "Choose a page",
-        ["Dashboard", "Data Explorer", "Analytics", "Settings"]
-    )
-    
-    # Sidebar settings
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Settings")
-    
-    # Theme selector
-    theme = st.sidebar.selectbox(
-        "Select Theme",
-        ["Light", "Dark", "Auto"]
-    )
-    
-    # Sample data toggle
-    use_sample_data = st.sidebar.checkbox("Use Sample Data", value=True)
-    
-    # Main content based on selected page
-    if page == "Dashboard":
-        show_dashboard(use_sample_data)
-    elif page == "Data Explorer":
-        show_data_explorer(use_sample_data)
-    elif page == "Analytics":
-        show_analytics(use_sample_data)
-    elif page == "Settings":
-        show_settings()
+    # Main RAG Chat Interface
+    show_rag_chat()
 
-def show_dashboard(use_sample_data):
-    st.header("📊 Dashboard")
-    
-    # Create sample data if needed
-    if use_sample_data:
-        data = generate_sample_data()
-    else:
-        data = load_user_data()
-    
-    # Key metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric(
-            label="Total Records",
-            value=len(data),
-            delta=12
-        )
-    
-    with col2:
-        st.metric(
-            label="Average Score",
-            value=f"{data['score'].mean():.2f}",
-            delta=0.5
-        )
-    
-    with col3:
-        st.metric(
-            label="Active Users",
-            value=data['active'].sum(),
-            delta=-3
-        )
-    
-    with col4:
-        st.metric(
-            label="Revenue",
-            value=f"${data['revenue'].sum():,.0f}",
-            delta=1500
-        )
-    
-    # Charts
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📈 Score Distribution")
-        fig_hist = px.histogram(
-            data, 
-            x='score', 
-            nbins=20,
-            title="Distribution of Scores"
-        )
-        st.plotly_chart(fig_hist, use_container_width=True)
-    
-    with col2:
-        st.subheader("📊 Revenue by Category")
-        fig_bar = px.bar(
-            data.groupby('category')['revenue'].sum().reset_index(),
-            x='category',
-            y='revenue',
-            title="Revenue by Category"
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
-    
-    # Time series chart
-    st.subheader("📅 Revenue Over Time")
-    data['date'] = pd.to_datetime(data['date'])
-    daily_revenue = data.groupby(data['date'].dt.date)['revenue'].sum().reset_index()
-    
-    fig_line = px.line(
-        daily_revenue,
-        x='date',
-        y='revenue',
-        title="Daily Revenue Trend"
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
+# Removed unused functions to keep the app simple and focused on RAG chat
 
-def show_data_explorer(use_sample_data):
-    st.header("🔍 Data Explorer")
+def show_rag_chat():
+    """Simple RAG Chat Interface"""
     
-    # Create sample data if needed
-    if use_sample_data:
-        data = generate_sample_data()
-    else:
-        data = load_user_data()
-    
-    # Data overview
-    st.subheader("Data Overview")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write(f"**Shape:** {data.shape}")
-        st.write(f"**Columns:** {list(data.columns)}")
-    
-    with col2:
-        st.write(f"**Memory Usage:** {data.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
-        st.write(f"**Data Types:**")
-        for col, dtype in data.dtypes.items():
-            st.write(f"  - {col}: {dtype}")
-    
-    # Data table with filters
-    st.subheader("Data Table")
-    
-    # Filters
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        categories = st.multiselect(
-            "Filter by Category",
-            options=data['category'].unique(),
-            default=data['category'].unique()
-        )
-    
-    with col2:
-        score_range = st.slider(
-            "Score Range",
-            min_value=float(data['score'].min()),
-            max_value=float(data['score'].max()),
-            value=(float(data['score'].min()), float(data['score'].max()))
-        )
-    
-    with col3:
-        active_filter = st.selectbox(
-            "Active Status",
-            ["All", "Active", "Inactive"]
-        )
-    
-    # Apply filters
-    filtered_data = data[
-        (data['category'].isin(categories)) &
-        (data['score'] >= score_range[0]) &
-        (data['score'] <= score_range[1])
-    ]
-    
-    if active_filter != "All":
-        active_bool = active_filter == "Active"
-        filtered_data = filtered_data[filtered_data['active'] == active_bool]
-    
-    # Display filtered data
-    st.dataframe(
-        filtered_data,
-        use_container_width=True,
-        height=400
-    )
-    
-    # Download button
-    csv = filtered_data.to_csv(index=False)
-    st.download_button(
-        label="Download filtered data as CSV",
-        data=csv,
-        file_name=f"filtered_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
-
-def show_analytics(use_sample_data):
-    st.header("📈 Analytics")
-    
-    # Create sample data if needed
-    if use_sample_data:
-        data = generate_sample_data()
-    else:
-        data = load_user_data()
-    
-    # Advanced analytics
-    st.subheader("Statistical Summary")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**Numerical Columns:**")
-        st.dataframe(data.describe())
-    
-    with col2:
-        st.write("**Categorical Columns:**")
-        for col in data.select_dtypes(include=['object']).columns:
-            st.write(f"**{col}:**")
-            st.write(data[col].value_counts().head())
-    
-    # Correlation matrix
-    st.subheader("Correlation Matrix")
-    numeric_data = data.select_dtypes(include=[np.number])
-    if len(numeric_data.columns) > 1:
-        corr_matrix = numeric_data.corr()
-        fig_corr = px.imshow(
-            corr_matrix,
-            title="Correlation Matrix",
-            color_continuous_scale="RdBu"
-        )
-        st.plotly_chart(fig_corr, use_container_width=True)
-    
-    # Advanced visualizations
-    st.subheader("Advanced Visualizations")
-    
-    viz_type = st.selectbox(
-        "Select Visualization Type",
-        ["Scatter Plot", "Box Plot", "Violin Plot", "Heatmap"]
-    )
-    
-    if viz_type == "Scatter Plot":
-        x_col = st.selectbox("X-axis", numeric_data.columns)
-        y_col = st.selectbox("Y-axis", numeric_data.columns)
-        color_col = st.selectbox("Color by", data.columns)
+    # Sidebar Configuration
+    with st.sidebar:
+        st.header("⚙️ Configuration")
         
-        fig_scatter = px.scatter(
-            data,
-            x=x_col,
-            y=y_col,
-            color=color_col,
-            title=f"{y_col} vs {x_col}"
+        # API endpoint
+        api_base_url = st.text_input(
+            "API Base URL", 
+            value="http://localhost:8000",
+            help="FastAPI backend URL"
         )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-    
-    elif viz_type == "Box Plot":
-        y_col = st.selectbox("Y-axis", numeric_data.columns)
-        x_col = st.selectbox("X-axis (categorical)", data.select_dtypes(include=['object']).columns)
         
-        fig_box = px.box(
-            data,
-            x=x_col,
-            y=y_col,
-            title=f"Box Plot: {y_col} by {x_col}"
+        # Search strategy
+        search_strategy = st.selectbox(
+            "Search Strategy",
+            ["rrf_fusion", "hybrid", "vector_only", "reranked"],
+            index=0,
+            help="How to search documents"
         )
-        st.plotly_chart(fig_box, use_container_width=True)
+        
+        # Simple settings
+        st.subheader("Settings")
+        include_sources = st.checkbox("Show sources", value=True)
+        enable_wikipedia = st.checkbox("Wikipedia fallback", value=True)
+        
+        # Advanced settings in expander
+        with st.expander("🔧 Advanced"):
+            top_k = st.slider("Sources to find", 5, 20, 10)
+            rerank_top_k = st.slider("Sources to use", 3, 10, 5)
+            temperature = st.slider("Creativity", 0.0, 1.0, 0.1, 0.1)
+            max_tokens = st.slider("Max response length", 500, 2000, 1000, 100)
+        
+        # System status
+        st.markdown("---")
+        if st.button("🔍 Check System Health"):
+            with st.spinner("Checking..."):
+                health = check_rag_health(api_base_url)
+                if health and health.get('status') == 'healthy':
+                    st.success("✅ System is healthy!")
+                else:
+                    st.error("❌ System issues detected")
+    
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+        # Add welcome message
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "👋 Hello! I'm your financial document assistant. Ask me anything about the documents in the system!"
+        })
+    
+    # Chat History Display
+    st.markdown("### 💬 Chat")
+    
+    # Display all messages
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+            
+            # Show sources for assistant messages
+            if message["role"] == "assistant" and "sources" in message and include_sources:
+                if message["sources"]:
+                    with st.expander(f"📚 View {len(message['sources'])} sources"):
+                        for i, source in enumerate(message["sources"], 1):
+                            st.markdown(f"**Source {i}:**")
+                            if source.get('title'):
+                                st.write(f"📄 {source['title']}")
+                            if source.get('section'):
+                                st.write(f"📍 Section: {source['section']}")
+                            if source.get('pages'):
+                                st.write(f"📖 Pages: {', '.join(map(str, source['pages']))}")
+                            st.write(f"🎯 Relevance: {source.get('score', 0):.2f}")
+                            st.write(f"📝 Preview: {source.get('text', '')[:150]}...")
+                            if source.get('url'):
+                                st.write(f"🔗 [View Source]({source['url']})")
+                            st.markdown("---")
+    
+    # Chat Input
+    if prompt := st.chat_input("Ask about financial documents..."):
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Display user message
+        with st.chat_message("user"):
+            st.write(prompt)
+        
+        # Get AI response
+        with st.chat_message("assistant"):
+            with st.spinner("🔍 Searching and generating response..."):
+                try:
+                    # Prepare config
+                    config = {
+                        "api_base_url": api_base_url,
+                        "search_strategy": search_strategy,
+                        "top_k": top_k,
+                        "rerank_top_k": rerank_top_k,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "enable_wikipedia": enable_wikipedia,
+                        "include_sources": include_sources
+                    }
+                    
+                    # Call RAG API
+                    response = call_rag_api(prompt, config)
+                    
+                    if response and "answer" in response:
+                        # Display response
+                        st.write(response["answer"])
+                        
+                        # Show timing info
+                        if "total_time_ms" in response:
+                            st.caption(f"⏱️ Generated in {response['total_time_ms']:.0f}ms")
+                        
+                        # Add to chat history
+                        assistant_msg = {
+                            "role": "assistant",
+                            "content": response["answer"],
+                            "sources": response.get("sources", [])
+                        }
+                        st.session_state.messages.append(assistant_msg)
+                        
+                    else:
+                        error_msg = "❌ Sorry, I couldn't generate a response. Please check if the backend is running."
+                        st.error(error_msg)
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": error_msg
+                        })
+                        
+                except Exception as e:
+                    error_msg = f"❌ Error: {str(e)}"
+                    st.error(error_msg)
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": error_msg
+                    })
+    
+    # Clear chat button
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🗑️ Clear Chat"):
+            st.session_state.messages = [{
+                "role": "assistant",
+                "content": "👋 Chat cleared! Ask me anything about the financial documents."
+            }]
+            st.rerun()
 
-def show_settings():
-    st.header("⚙️ Settings")
-    
-    st.subheader("Application Settings")
-    
-    # Configuration options
-    auto_refresh = st.checkbox("Auto-refresh data", value=False)
-    if auto_refresh:
-        refresh_interval = st.slider("Refresh interval (seconds)", 5, 300, 30)
-        st.info(f"Data will refresh every {refresh_interval} seconds")
-    
-    # Data source settings
-    st.subheader("Data Source")
-    data_source = st.radio(
-        "Select data source",
-        ["Sample Data", "Upload File", "Database Connection"]
-    )
-    
-    if data_source == "Upload File":
-        uploaded_file = st.file_uploader(
-            "Choose a CSV file",
-            type="csv"
-        )
-        if uploaded_file is not None:
-            st.success("File uploaded successfully!")
-    
-    elif data_source == "Database Connection":
-        st.text_input("Database URL")
-        st.text_input("Username")
-        st.text_input("Password", type="password")
-    
-    # Export settings
-    st.subheader("Export Settings")
-    export_format = st.selectbox(
-        "Default export format",
-        ["CSV", "Excel", "JSON", "Parquet"]
-    )
-    
-    # Save settings
-    if st.button("Save Settings"):
-        settings = {
-            "auto_refresh": auto_refresh,
-            "data_source": data_source,
-            "export_format": export_format
+
+def call_rag_api(query: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Call the RAG API endpoint"""
+    try:
+        url = f"{config['api_base_url']}/rag/query"
+        
+        payload = {
+            "query": query,
+            "strategy": config["search_strategy"],
+            "top_k": config["top_k"],
+            "rerank_top_k": config["rerank_top_k"],
+            "include_sources": config["include_sources"],
+            "enable_wikipedia_fallback": config["enable_wikipedia"],
+            "temperature": config["temperature"],
+            "max_tokens": config["max_tokens"]
         }
-        st.success("Settings saved successfully!")
+        
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        
+        return response.json()
+        
+    except requests.exceptions.ConnectionError:
+        st.error("🔌 Cannot connect to backend. Make sure it's running on the configured URL.")
+        return None
+    except requests.exceptions.Timeout:
+        st.error("⏰ Request timed out. The backend might be overloaded.")
+        return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ API request failed: {str(e)}")
+        return None
+    except Exception as e:
+        st.error(f"❌ Unexpected error: {str(e)}")
+        return None
 
-def generate_sample_data():
-    """Generate sample data for demonstration"""
-    np.random.seed(42)
-    n_records = 1000
-    
-    data = pd.DataFrame({
-        'id': range(1, n_records + 1),
-        'date': pd.date_range('2024-01-01', periods=n_records, freq='D'),
-        'category': np.random.choice(['A', 'B', 'C', 'D'], n_records),
-        'score': np.random.normal(75, 15, n_records).clip(0, 100),
-        'revenue': np.random.exponential(1000, n_records),
-        'active': np.random.choice([True, False], n_records, p=[0.7, 0.3]),
-        'region': np.random.choice(['North', 'South', 'East', 'West'], n_records)
-    })
-    
-    return data
 
-def load_user_data():
-    """Load user's actual data - implement based on your needs"""
-    # Placeholder for actual data loading logic
-    st.warning("No user data loaded. Using sample data.")
-    return generate_sample_data()
+def check_rag_health(api_base_url: str) -> Dict[str, Any]:
+    """Check RAG system health"""
+    try:
+        url = f"{api_base_url}/rag/health"
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except Exception:
+        return None
 
-# Cache data to improve performance
-@st.cache_data
-def load_cached_data():
-    return generate_sample_data()
+
+# Removed unused functions to keep the app simple and focused on RAG chat
 
 if __name__ == "__main__":
     main()
