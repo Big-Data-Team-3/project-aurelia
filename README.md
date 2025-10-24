@@ -620,3 +620,4 @@ For issues and questions:
 ---
 
 **Project Aurelia** - Advancing the state of the art in Retrieval-Augmented Generation systems.
+
