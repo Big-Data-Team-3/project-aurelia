@@ -2,7 +2,7 @@
 
 A sophisticated Retrieval-Augmented Generation (RAG) system built with FastAPI and Streamlit, featuring advanced document processing, multiple search strategies, neural reranking, and intelligent query routing.
 
-**GitHub Repo:** [Big-Data-Team-3/pdf-parser](https://github.com/Big-Data-Team-3/project-aurelia)
+**GitHub Repo:** [Big-Data-Team-3](https://github.com/Big-Data-Team-3/project-aurelia)
  
 - **Interactive Tutorial**: [Google Codelabs](https://codelabs-preview.appspot.com/?file_id=1WW1CRWUCD43Zuu0kj5Udn5pIm5i5cgRwh0CzkGeBlZo)
 
