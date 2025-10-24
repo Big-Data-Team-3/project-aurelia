@@ -8,6 +8,7 @@ A sophisticated Retrieval-Augmented Generation (RAG) system built with FastAPI a
 
 - **Recording Link** : [Video Recording](https://drive.google.com/drive/folders/1ovXMpd7xj6oKaeUFmPXziRpBvTstffFq?usp=drive_link)
 
+
 ## 🌟 Features
 
 ### 🔍 Advanced Search & Retrieval
@@ -137,6 +138,7 @@ streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 │ • Health Check  │    │ • Query Router   │    │ • Wikipedia     │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
+
 
 ### Core Components
 
@@ -618,3 +620,4 @@ For issues and questions:
 ---
 
 **Project Aurelia** - Advancing the state of the art in Retrieval-Augmented Generation systems.
+

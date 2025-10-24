@@ -1,0 +1,36 @@
+# Python Version = 3.11
+# Core FastAPI and Web Framework
+fastapi==0.119.1
+uvicorn[standard]==0.38.0
+pydantic==2.12.3
+pydantic-settings==2.11.0
+
+# Streamlit Frontend
+streamlit==1.50.0
+
+# AI/ML Core Dependencies
+openai==1.109.1
+sentence-transformers==5.1.2
+instructor==1.11.3
+
+# Vector Database and Search
+pinecone==7.3.0
+rank-bm25==0.2.2
+
+# Data Processing
+numpy==2.3.4
+
+# Caching and Session Management
+redis==7.0.0
+
+# Wikipedia Integration
+wikipedia==1.4.0
+
+# Configuration and Environment
+python-dotenv==1.1.1
+
+# System Monitoring (used in check_dependencies.py)
+psutil==7.1.1
+
+# HTTP Client (used in Streamlit)
+requests>=2.32.5
