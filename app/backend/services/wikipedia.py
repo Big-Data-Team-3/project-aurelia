@@ -14,9 +14,10 @@ from urllib.parse import quote
 from config.rag_config import rag_config
 from models.rag_models import SearchResult, SourceType
 
-
-logger = logging.getLogger(__name__)
-
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 class WikipediaService:
     """Service for Wikipedia search as knowledge fallback"""
@@ -48,7 +49,7 @@ class WikipediaService:
         start_time = time.time()
         
         if not rag_config.enable_wikipedia_fallback:
-            logger.info("Wikipedia fallback is disabled")
+            print("Wikipedia fallback is disabled")
             return [], 0.0
         
         try:
@@ -59,7 +60,7 @@ class WikipediaService:
             search_results = wikipedia.search(clean_query, results=top_k * 2)
             
             if not search_results:
-                logger.info(f"No Wikipedia results found for query: {query}")
+                print(f"No Wikipedia results found for query: {query}")
                 return [], (time.time() - start_time) * 1000
             
             # Get detailed information for each result
@@ -70,16 +71,16 @@ class WikipediaService:
                     if result:
                         results.append(result)
                 except Exception as e:
-                    logger.warning(f"Failed to get Wikipedia page info for '{title}': {e}")
+                    print(f"Failed to get Wikipedia page info for '{title}': {e}")
                     continue
             
             search_time = (time.time() - start_time) * 1000
-            logger.info(f"Wikipedia search completed in {search_time:.2f}ms, found {len(results)} results")
+            print(f"Wikipedia search completed in {search_time:.2f}ms, found {len(results)} results")
             
             return results, search_time
             
         except Exception as e:
-            logger.error(f"Wikipedia search failed: {e}")
+            print(f"Wikipedia search failed: {e}")
             return [], (time.time() - start_time) * 1000
     
     async def _get_wikipedia_page_info(
@@ -144,15 +145,15 @@ class WikipediaService:
                     return await self._get_wikipedia_page_info(e.options[0], original_query)
             except Exception:
                 pass
-            logger.warning(f"Disambiguation error for '{title}': {e}")
+            print(f"Disambiguation error for '{title}': {e}")
             return None
             
         except wikipedia.exceptions.PageError:
-            logger.warning(f"Wikipedia page not found: '{title}'")
+            print(f"Wikipedia page not found: '{title}'")
             return None
             
         except Exception as e:
-            logger.error(f"Error getting Wikipedia page info for '{title}': {e}")
+            print(f"Error getting Wikipedia page info for '{title}': {e}")
             return None
     
     def _clean_query(self, query: str) -> str:
@@ -196,7 +197,7 @@ class WikipediaService:
             return '\n\n'.join(relevant_sections)
             
         except Exception as e:
-            logger.warning(f"Failed to extract relevant content: {e}")
+            print(f"Failed to extract relevant content: {e}")
             return ""
     
     def _calculate_relevance_score(self, text: str, query: str) -> float:
@@ -240,7 +241,7 @@ class WikipediaService:
             return suggestions
             
         except Exception as e:
-            logger.error(f"Failed to get Wikipedia suggestions: {e}")
+            print(f"Failed to get Wikipedia suggestions: {e}")
             return []
     
     async def search_with_fallback_queries(
@@ -290,7 +291,7 @@ class WikipediaService:
                             break
         
         total_time = (time.time() - start_time) * 1000
-        logger.info(f"Wikipedia fallback search completed in {total_time:.2f}ms")
+        print(f"Wikipedia fallback search completed in {total_time:.2f}ms")
         
         return results[:top_k], total_time
     
@@ -305,7 +306,7 @@ class WikipediaService:
             return len(test_results) >= 0  # Even empty results indicate service is working
             
         except Exception as e:
-            logger.error(f"Wikipedia service health check failed: {e}")
+            print(f"Wikipedia service health check failed: {e}")
             return False
 
 

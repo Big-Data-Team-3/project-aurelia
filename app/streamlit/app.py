@@ -91,6 +91,17 @@ def show_rag_chat():
                     st.success("✅ System is healthy!")
                 else:
                     st.error("❌ System issues detected")
+        
+        # Add source statistics if available
+        if "messages" in st.session_state and st.session_state.messages:
+            last_message = st.session_state.messages[-1]
+            if (last_message.get("role") == "assistant" and 
+                "sources" in last_message and 
+                last_message["sources"]):
+                
+                wikipedia_count = len([s for s in last_message["sources"] if s.get('source_type') == 'wikipedia'])
+                document_count = len([s for s in last_message["sources"] if s.get('source_type') != 'wikipedia'])
+                
     
     # Initialize chat history
     if "messages" not in st.session_state:
@@ -110,28 +121,50 @@ def show_rag_chat():
             st.write(message["content"])
             
             # Show sources for assistant messages
-            if message["role"] == "assistant" and "sources" in message and include_sources:
-                if message["sources"]:
-                    with st.expander(f"📚 View {len(message['sources'])} sources"):
-                        for i, source in enumerate(message["sources"], 1):
-                            st.markdown(f"**Source {i}:**")
-                            if source.get('title'):
-                                st.write(f"📄 {source['title']}")
-                            if source.get('section'):
-                                st.write(f"📍 Section: {source['section']}")
-                            if source.get('pages'):
-                                st.write(f"📖 Pages: {', '.join(map(str, source['pages']))}")
-                            st.write(f"🎯 Relevance: {source.get('score', 0):.2f}")
-                            st.write(f"📝 Preview: {source.get('text', '')[:150]}...")
-                            if source.get('url'):
-                                st.write(f"🔗 [View Source]({source['url']})")
-                            st.markdown("---")
+            if (message["role"] == "assistant" and 
+                include_sources and 
+                "sources" in message and 
+                message["sources"] and 
+                len(message["sources"]) > 0):
+                
+                # Check source types for this message
+                wikipedia_sources = [s for s in message["sources"] if s.get('source_type') == 'wikipedia']
+                document_sources = [s for s in message["sources"] if s.get('source_type') != 'wikipedia']
+                
+                # Show source summary for chat history
+                if wikipedia_sources and document_sources:
+                    st.caption(f"📚 {len(document_sources)} documents + 🌐 {len(wikipedia_sources)} Wikipedia")
+                elif wikipedia_sources:
+                    st.caption(f"🌐 {len(wikipedia_sources)} Wikipedia sources")
+                elif document_sources:
+                    st.caption(f"📄 {len(document_sources)} document sources")
+                
+                with st.expander(f"📚 View {len(message['sources'])} sources"):
+                    for i, source in enumerate(message["sources"], 1):
+                        # Add source type indicator
+                        source_type = source.get('source_type', 'document')
+                        if source_type == 'wikipedia':
+                            st.markdown(f"**Source {i}:** 🌐 **Wikipedia**")
+                        else:
+                            st.markdown(f"**Source {i}:** 📄 **Document**")
+                        
+                        if source.get('title'):
+                            st.write(f"📄 {source['title']}")
+                        if source.get('section'):
+                            st.write(f"📍 Section: {source['section']}")
+                        if source.get('pages'):
+                            st.write(f"📖 Pages: {', '.join(map(str, source['pages']))}")
+                        st.write(f"🎯 Relevance: {source.get('score', 0):.2f}")
+                        st.write(f"📝 Preview: {source.get('text', '')[:150]}...")
+                        if source.get('url'):
+                            st.write(f"🔗 [View Source]({source['url']})")
+                        st.markdown("---")
     
     # Chat Input
     if prompt := st.chat_input("Ask about financial documents..."):
-        # Add user message
+    # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
-        
+    
         # Display user message
         with st.chat_message("user"):
             st.write(prompt)
@@ -163,13 +196,54 @@ def show_rag_chat():
                         if "total_time_ms" in response:
                             st.caption(f"⏱️ Generated in {response['total_time_ms']:.0f}ms")
                         
-                        # Add to chat history
+                        # CRITICAL FIX: Add to chat history BEFORE showing sources
                         assistant_msg = {
                             "role": "assistant",
                             "content": response["answer"],
                             "sources": response.get("sources", [])
                         }
                         st.session_state.messages.append(assistant_msg)
+                        
+                        # Show sources immediately after adding to session state
+                        if (include_sources and 
+                            "sources" in response and 
+                            response["sources"] and 
+                            len(response["sources"]) > 0):
+                            
+                            # Check if Wikipedia was used
+                            wikipedia_sources = [s for s in response["sources"] if s.get('source_type') == 'wikipedia']
+                            document_sources = [s for s in response["sources"] if s.get('source_type') != 'wikipedia']
+                            
+                            # Show source summary
+                            if wikipedia_sources:
+                                st.info(f"📚 **Wikipedia Sources**: {len(wikipedia_sources)} results from Wikipedia")
+                            if document_sources:
+                                st.success(f"📄 **Document Sources**: {len(document_sources)} results from your documents")
+                            
+                            # Add Wikipedia warning if applicable
+                            if response.get("metadata", {}).get("wikipedia_fallback_used"):
+                                st.warning("⚠️ **Note**: This response includes information from Wikipedia as I couldn't find sufficient relevant information in your document corpus.")
+                            
+                            with st.expander(f"📚 View {len(response['sources'])} sources"):
+                                for i, source in enumerate(response["sources"], 1):
+                                    # Add source type indicator
+                                    source_type = source.get('source_type', 'document')
+                                    if source_type == 'wikipedia':
+                                        st.markdown(f"**Source {i}:** 🌐 **Wikipedia**")
+                                    else:
+                                        st.markdown(f"**Source {i}:** 📄 **Document**")
+                                    
+                                    if source.get('title'):
+                                        st.write(f"📄 {source['title']}")
+                                    if source.get('section'):
+                                        st.write(f"📍 Section: {source['section']}")
+                                    if source.get('pages'):
+                                        st.write(f"📖 Pages: {', '.join(map(str, source['pages']))}")
+                                    st.write(f"🎯 Relevance: {source.get('score', 0):.2f}")
+                                    st.write(f"📝 Preview: {source.get('text', '')[:150]}...")
+                                    if source.get('url'):
+                                        st.write(f"🔗 [View Source]({source['url']})")
+                                    st.markdown("---")
                         
                     else:
                         error_msg = "❌ Sorry, I couldn't generate a response. Please check if the backend is running."
@@ -211,7 +285,8 @@ def call_rag_api(query: str, config: Dict[str, Any]) -> Dict[str, Any]:
             "include_sources": config["include_sources"],
             "enable_wikipedia_fallback": config["enable_wikipedia"],
             "temperature": config["temperature"],
-            "max_tokens": config["max_tokens"]
+            "max_tokens": config["max_tokens"],
+            "stream": True
         }
         
         response = requests.post(url, json=payload, timeout=30)

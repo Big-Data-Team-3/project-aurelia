@@ -38,6 +38,7 @@ async def get_current_user():
     return {"user_id": "demo_user", "username": "demo"}
 
 # region Endpoints
+# RAG query endpoint for standard query (non-streaming)
 @router.post("/query", response_model=RAGResponse)
 async def rag_query(
     query: RAGQuery,
@@ -51,10 +52,8 @@ async def rag_query(
     """
     logger.info(f"RAG query received: {query.query[:100]}...")
     try:
-        if query.stream:
-            return await rag_service.streaming_query(query)
-        else:
-            return await rag_service.query(query)
+        response = await rag_service.query(query)
+        return response
     except Exception as e:
         logger.error(f"RAG query failed: {e}")
         raise HTTPException(
@@ -62,6 +61,58 @@ async def rag_query(
             detail=f"RAG query failed: {str(e)}"
         )
 
+# Streaming RAG query endpoint
+@router.post("/query/stream")  # Remove response_model=StreamingResponse
+async def streaming_rag_query(
+    query: RAGQuery,
+    current_user: dict = Depends(get_current_user)
+):
+    """Streaming RAG query endpoint"""
+    try:
+        import json
+        import asyncio
+        
+        async def generate_stream():
+            try:
+                async for chunk in rag_service.streaming_query(query):
+                    # Convert StreamingChunk to JSON properly
+                    chunk_data = {
+                        "type": chunk.type,
+                        "content": chunk.content,
+                        "is_final": chunk.is_final
+                    }
+                    
+                    # Handle SearchResult objects in content
+                    if chunk.type == "sources" and isinstance(chunk.content, list):
+                        chunk_data["content"] = [
+                            source.dict() if hasattr(source, 'dict') else str(source)
+                            for source in chunk.content
+                        ]
+                    
+                    yield f"data: {json.dumps(chunk_data)}\n\n"
+                    await asyncio.sleep(0.01)
+                    
+            except Exception as e:
+                logger.error(f"Stream generation error: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e), 'is_final': True})}\n\n"
+        
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache", 
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Streaming RAG query failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Streaming RAG query failed: {str(e)}"
+        )
+    
+# Search-only endpoint without generation
 @router.post("/search", response_model=SearchResponse)
 async def search_only(
     search_query: SearchOnlyQuery,
@@ -92,6 +143,7 @@ async def search_only(
             detail=f"Search query failed: {str(e)}"
         )
 
+# Health check endpoint for RAG system
 @router.get("/health", response_model=RAGHealthCheck)
 async def health_check():
     """
@@ -123,7 +175,7 @@ async def health_check():
             detail=f"Health check failed: {str(e)}"
         )
 
-
+# Get RAG system configuration
 @router.get("/config", response_model=RAGConfig)
 async def get_config():
     """
@@ -159,7 +211,7 @@ async def get_config():
             detail=f"Failed to get configuration: {str(e)}"
         )
 
-
+# Get available search strategies and their configurations
 @router.get("/strategies")
 async def get_search_strategies():
     """
@@ -193,7 +245,7 @@ async def get_search_strategies():
             detail=f"Failed to get search strategies: {str(e)}"
         )
 
-
+# Batch RAG queries for processing multiple questions
 @router.post("/batch/query")
 async def batch_rag_query(
     queries: List[RAGQuery],
@@ -250,7 +302,7 @@ async def batch_rag_query(
             detail=f"Batch query failed: {str(e)}"
         )
 
-# Add cache management endpoints
+# Get cache statistics and performance metrics
 @router.get("/cache/stats")
 async def get_cache_stats(current_user: dict = Depends(get_current_user)):
     """Get cache statistics and performance metrics"""
@@ -269,6 +321,7 @@ async def get_cache_stats(current_user: dict = Depends(get_current_user)):
         logger.error(f"Failed to get cache stats: {e}")
         raise HTTPException(status_code=500, detail=f"Cache stats failed: {str(e)}")
 
+# Clear cache by type
 @router.delete("/cache/clear")
 async def clear_cache(
     cache_type: str = Query("all", description="Cache type to clear: all, responses, embeddings, search, sessions"),
@@ -295,6 +348,7 @@ async def clear_cache(
         logger.error(f"Failed to clear cache: {e}")
         raise HTTPException(status_code=500, detail=f"Cache clear failed: {str(e)}")
 
+# Check cache system health
 @router.get("/cache/health")
 async def cache_health_check():
     """Check cache system health"""
@@ -312,8 +366,7 @@ async def cache_health_check():
             "error": str(e)
         }
 
-
-# Session-based chat endpoints
+# Create a new chat session for persistent conversation
 @router.post("/chat/session", response_model=CreateSessionResponse)
 async def create_chat_session(
     request: CreateSessionRequest = CreateSessionRequest(),
@@ -349,7 +402,7 @@ async def create_chat_session(
             detail=f"Failed to create session: {str(e)}"
         )
 
-
+# Send a message to an existing chat session
 @router.post("/chat/session/{session_id}/message", response_model=SessionMessageResponse)
 async def send_session_message(
     session_id: str,
@@ -384,7 +437,7 @@ async def send_session_message(
             detail=f"Message processing failed: {str(e)}"
         )
 
-
+# Get session details and conversation history
 @router.get("/chat/session/{session_id}", response_model=ChatSession)
 async def get_session(
     session_id: str,
@@ -415,7 +468,7 @@ async def get_session(
             detail=f"Failed to retrieve session: {str(e)}"
         )
 
-
+# Delete a chat session and all its data
 @router.delete("/chat/session/{session_id}")
 async def delete_session(
     session_id: str,
@@ -447,7 +500,7 @@ async def delete_session(
             detail=f"Failed to delete session: {str(e)}"
         )
 
-
+# List all sessions for the current user
 @router.get("/chat/sessions", response_model=SessionListResponse)
 async def list_user_sessions(
     active_only: bool = Query(True, description="Only return active (non-expired) sessions"),
@@ -475,6 +528,8 @@ async def list_user_sessions(
         )
 # endregion
 # region Helper functions
+
+# Get human-readable description for a search strategy
 def _get_strategy_description(strategy: str) -> str:
     """Get human-readable description for a search strategy"""
     descriptions = {
@@ -485,7 +540,7 @@ def _get_strategy_description(strategy: str) -> str:
     }
     return descriptions.get(strategy, "Unknown strategy")
 
-
+# Get list of components used by a strategy
 def _get_strategy_components(config: Dict[str, bool]) -> List[str]:
     """Get list of components used by a strategy"""
     components = []

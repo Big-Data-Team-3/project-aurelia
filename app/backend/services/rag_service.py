@@ -7,7 +7,10 @@ import time
 import asyncio
 from typing import List, Dict, Any, Optional, AsyncGenerator
 import logging
-
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 from config.rag_config import rag_config, SearchStrategies
 from models.rag_models import (
     SearchResult, RAGQuery, RAGResponse, SearchResponse, 
@@ -23,6 +26,7 @@ from services.fusion import fusion_service
 from services.query_processor import query_processor
 from services.chatgpt_service import chatgpt_service
 from services.session_service import session_service
+from services.query_rewriter import query_rewriter
 
 
 logger = logging.getLogger(__name__)
@@ -239,7 +243,7 @@ class RAGService:
     
     async def query(self, rag_query: RAGQuery) -> RAGResponse:
         """
-        Main RAG query method with PII filtering and intelligent routing
+        Simplified RAG query method with query rewriting and Wikipedia fallback
         
         Args:
             rag_query: RAG query parameters
@@ -250,50 +254,16 @@ class RAGService:
         start_time = time.time()
         
         try:
+            print(f"--------------------------------")
             await self.initialize_services()
+            logger.info(f"Query: {rag_query.query}")
+            # Step 1: Rewrite query for better retrieval
+            rewritten_query = await query_rewriter.rewrite_query(rag_query.query)
             
-            # Step 1: Process query through pipeline (PII filtering, intent classification, etc.)
-            query_processing_result = await query_processor.process_query(
-                rag_query.query, 
-                []  # No conversation history in this method
-            )
-            
-            # Step 2: Route based on processing result
-            if query_processing_result.routing_decision == "ChatGPT":
-                # Use ChatGPT service for conversational queries
-                answer, generation_time = await chatgpt_service.generate_response(
-                    query_processing_result.processed_query,
-                    [],  # No conversation history in this method
-                    rag_query.temperature,
-                    rag_query.max_tokens
-                )
-                
-                total_time = (time.time() - start_time) * 1000
-                
-                return RAGResponse(
-                    query=rag_query.query,
-                    answer=answer,
-                    sources=[],
-                    strategy_used=rag_query.strategy,
-                    metadata={
-                        'routing_decision': 'ChatGPT',
-                        'pii_detected': query_processing_result.pii_detection.has_pii,
-                        'pii_types': query_processing_result.pii_detection.pii_types,
-                        'intent': query_processing_result.intent_classification["predicted_intent"],
-                        'intent_confidence': query_processing_result.intent_classification["confidence_score"],
-                        'expanded_queries': query_processing_result.expanded_queries,
-                        'processing_time_ms': query_processing_result.processing_time_ms,
-                        'original_query': rag_query.query,
-                        'processed_query': query_processing_result.processed_query
-                    },
-                    generation_time_ms=generation_time,
-                    total_time_ms=total_time
-                )
-            
-            # Step 3: Continue with RAG pipeline for document-based queries
-            # Use processed query (with PII filtered) for retrieval
-            processed_rag_query = RAGQuery(
-                query=query_processing_result.processed_query,
+            # Step 2: Retrieve documents using rewritten query
+            # Create a new RAG query with the rewritten query for retrieval
+            retrieval_query = RAGQuery(
+                query=rewritten_query,  # Use rewritten query for retrieval
                 strategy=rag_query.strategy,
                 top_k=rag_query.top_k,
                 rerank_top_k=rag_query.rerank_top_k,
@@ -302,22 +272,27 @@ class RAGService:
                 temperature=rag_query.temperature,
                 max_tokens=rag_query.max_tokens
             )
+            search_results, retrieval_time = await self._retrieve_documents(retrieval_query)
             
-            # Retrieve documents using processed query
-            search_results, retrieval_time = await self._retrieve_documents(processed_rag_query)
+            # Step 3: Check confidence and apply Wikipedia fallback if needed
+            confidence_threshold = 0.5
+            avg_confidence = sum(result.score for result in search_results) / len(search_results) if search_results else 0.0
             
-            # Try expanded queries if we have few results
-            if query_processing_result.expanded_queries and len(search_results) < 3:
-                for expanded_query in query_processing_result.expanded_queries[:2]:  # Try top 2 expansions
-                    expanded_rag_query = RAGQuery(
-                        query=expanded_query,
-                        strategy=rag_query.strategy,
-                        top_k=5  # Fewer results per expansion
-                    )
-                    additional_results, _ = await self._retrieve_documents(expanded_rag_query)
-                    search_results.extend(additional_results)
+            if (rag_query.enable_wikipedia_fallback and 
+                (len(search_results) < rag_query.rerank_top_k or avg_confidence < confidence_threshold)):
+                # When Wikipedia fallback is enabled and the results are insufficient, the query's sources need to change at the frontend!
+                # This is because the Wikipedia fallback results are not part of the search results, so we need to add them to the search results.
+                logger.info(f"Applying Wikipedia fallback because of insufficient results with avg confidence of {avg_confidence:.2f}")
+                wiki_results, wiki_time = await self._apply_wikipedia_fallback(
+                    rag_query.query
+                )
+                print(f"-----------------")
+                print(f"Wikipedia fallback results: {wiki_results}")
+                print(f"-----------------")
+                search_results = wiki_results
+                retrieval_time += wiki_time
             
-            # Remove duplicates and limit results
+            # Step 4: Remove duplicates and limit results
             seen_ids = set()
             unique_results = []
             for result in search_results:
@@ -325,27 +300,16 @@ class RAGService:
                     unique_results.append(result)
                     seen_ids.add(result.id)
             
-            search_results = unique_results[:processed_rag_query.rerank_top_k]
+            search_results = unique_results[:rag_query.rerank_top_k]
             
-            # Apply Wikipedia fallback if needed
-            if (processed_rag_query.enable_wikipedia_fallback and 
-                len(search_results) < processed_rag_query.rerank_top_k):
-                
-                wiki_results, wiki_time = await self._apply_wikipedia_fallback(
-                    query_processing_result.processed_query, 
-                    search_results,
-                    processed_rag_query.top_k - len(search_results)
-                )
-                search_results.extend(wiki_results)
-                retrieval_time += wiki_time
-            
-            # Generate response
+            # Step 5: Generate response
             if search_results:
+                # Use original query for generation to maintain user intent
                 answer, generation_time = await generation_service.generate_response(
-                    query=query_processing_result.processed_query,
-                    context_results=search_results[:processed_rag_query.rerank_top_k],
-                    temperature=processed_rag_query.temperature,
-                    max_tokens=processed_rag_query.max_tokens
+                    query=rag_query.query,  # Use original query for generation
+                    context_results=search_results,
+                    temperature=rag_query.temperature,
+                    max_tokens=rag_query.max_tokens
                 )
             else:
                 answer = "I couldn't find relevant information to answer your question. Please try rephrasing your query or asking about a different topic."
@@ -353,34 +317,31 @@ class RAGService:
             
             total_time = (time.time() - start_time) * 1000
             
-            # Create response
+            # Step 6: Create response
             response = RAGResponse(
                 query=rag_query.query,
                 answer=answer,
-                sources=search_results[:processed_rag_query.rerank_top_k] if processed_rag_query.include_sources else [],
+                sources=search_results if rag_query.include_sources else [],
                 strategy_used=rag_query.strategy,
                 metadata={
-                    'routing_decision': 'RAG',
-                    'pii_detected': query_processing_result.pii_detection.has_pii,
-                    'pii_types': query_processing_result.pii_detection.pii_types,
-                    'intent': query_processing_result.intent_classification["predicted_intent"],
-                    'intent_confidence': query_processing_result.intent_classification["confidence_score"],
-                    'expanded_queries': query_processing_result.expanded_queries,
-                    'processing_time_ms': query_processing_result.processing_time_ms,
                     'original_query': rag_query.query,
-                    'processed_query': query_processing_result.processed_query,
+                    'rewritten_query': rewritten_query,
                     'total_sources_found': len(search_results),
-                    'sources_used_for_generation': min(len(search_results), processed_rag_query.rerank_top_k),
-                    'wikipedia_fallback_used': processed_rag_query.enable_wikipedia_fallback and any(
+                    'sources_used_for_generation': len(search_results),
+                    'average_confidence': avg_confidence,
+                    'wikipedia_fallback_used': any(
                         r.source_type.value == 'wikipedia' for r in search_results
-                    )
+                    ),
+                    'query_rewriting_enabled': True,
+                    'wikipedia_results_count': len([r for r in search_results if r.source_type.value == 'wikipedia']),
+                    'primary_source': 'wikipedia' if any(r.source_type.value == 'wikipedia' for r in search_results) else 'documents'
                 },
                 retrieval_time_ms=retrieval_time,
                 generation_time_ms=generation_time,
                 total_time_ms=total_time
             )
             
-            logger.info(f"RAG query completed in {total_time:.2f}ms with {query_processing_result.routing_decision} routing")
+            logger.info(f"RAG query completed in {total_time:.2f}ms with {len(search_results)} sources")
             return response
             
         except Exception as e:
@@ -675,8 +636,7 @@ class RAGService:
     async def _apply_wikipedia_fallback(
         self,
         query: str,
-        existing_results: List[SearchResult],
-        max_wiki_results: int
+        max_wiki_results: int = rag_config.wikipedia_top_k
     ) -> tuple[List[SearchResult], float]:
         """
         Apply Wikipedia fallback if existing results are insufficient
@@ -690,16 +650,8 @@ class RAGService:
             Tuple of (Wikipedia results, search time in ms)
         """
         try:
-            # Check if we need Wikipedia fallback
-            if len(existing_results) >= rag_config.rerank_top_k:
-                return [], 0.0
-            
-            # Check similarity threshold
-            if existing_results:
-                avg_score = sum(r.score for r in existing_results) / len(existing_results)
-                if avg_score >= rag_config.similarity_threshold:
-                    return [], 0.0  # Existing results are good enough
-            
+            print(f"Applying Wikipedia fallback with query: {query}")
+    
             # Search Wikipedia
             wiki_results, wiki_time = await wikipedia_service.search_wikipedia(
                 query=query,
