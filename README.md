@@ -133,9 +133,6 @@ streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 ```
 
 
-![Aurelia](project-aurelia/architecture_diagrams/Arch_Aurelia.png)
-*Aurelia  – Complete Architecture*
-
 ### Core Components
 
 #### 1. **RAG Service** (`app/backend/services/rag_service.py`)
