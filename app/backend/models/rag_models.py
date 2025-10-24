@@ -48,6 +48,7 @@ class RAGQuery(BaseModel):
     rerank_top_k: int = Field(5, ge=1, le=20, description="Number of results to rerank")
     include_sources: bool = Field(True, description="Include source information in response")
     enable_wikipedia_fallback: bool = Field(True, description="Enable Wikipedia fallback if results are insufficient")
+    stream: bool = Field(False, description="Stream the response")
     temperature: float = Field(0.1, ge=0.0, le=1.0, description="Generation temperature")
     max_tokens: int = Field(1000, ge=100, le=2000, description="Maximum tokens in response")
     

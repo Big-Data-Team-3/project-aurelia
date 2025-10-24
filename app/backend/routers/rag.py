@@ -2,15 +2,14 @@
 RAG API Endpoints
 FastAPI router for RAG functionality
 """
-
+# region Imports
 import asyncio
 from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
-# from sse_starlette.sse import EventSourceResponse  # Commented out for now
-import json
 import logging
-
+# endregion
+# region Models
 from models.rag_models import (
     RAGQuery, RAGResponse, SearchOnlyQuery, SearchResponse,
     RerankQuery, RerankResponse, RAGHealthCheck, RAGConfig,
@@ -18,22 +17,27 @@ from models.rag_models import (
     CreateSessionRequest, CreateSessionResponse, SessionMessageRequest,
     SessionMessageResponse, SessionListResponse, ChatSession
 )
+# endregion
+# region Services
 from services.rag_service import rag_service
 from services.reranking import reranking_service
 from services.session_service import session_service
 from config.rag_config import rag_config, SearchStrategies
-
-
+from services.cache_service import cache_service
+# endregion
+# region Config
+from config.rag_config import rag_config, SearchStrategies
+# endregion
+# region Logger
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rag", tags=["RAG"])
-
-
+# endregion
 # Dependency for authentication (placeholder)
 async def get_current_user():
     """Placeholder for user authentication"""
     return {"user_id": "demo_user", "username": "demo"}
 
-
+# region Endpoints
 @router.post("/query", response_model=RAGResponse)
 async def rag_query(
     query: RAGQuery,
@@ -45,21 +49,18 @@ async def rag_query(
     Performs document retrieval using the specified strategy,
     applies Wikipedia fallback if needed, and generates a response.
     """
+    logger.info(f"RAG query received: {query.query[:100]}...")
     try:
-        logger.info(f"RAG query received: {query.query[:100]}...")
-        
-        response = await rag_service.query(query)
-        
-        logger.info(f"RAG query completed successfully in {response.total_time_ms:.2f}ms")
-        return response
-        
+        if query.stream:
+            return await rag_service.streaming_query(query)
+        else:
+            return await rag_service.query(query)
     except Exception as e:
         logger.error(f"RAG query failed: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"RAG query failed: {str(e)}"
         )
-
 
 @router.post("/search", response_model=SearchResponse)
 async def search_only(
@@ -90,143 +91,6 @@ async def search_only(
             status_code=500,
             detail=f"Search query failed: {str(e)}"
         )
-
-
-@router.post("/rerank", response_model=RerankResponse)
-async def rerank_results(
-    rerank_query: RerankQuery,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Rerank search results using cross-encoder models
-    
-    Takes a list of search results and reranks them based on
-    relevance to the query using neural reranking models.
-    """
-    try:
-        logger.info(f"Rerank query received with {len(rerank_query.results)} results")
-        
-        if not rag_config.enable_reranking:
-            raise HTTPException(
-                status_code=400,
-                detail="Reranking is disabled in the current configuration"
-            )
-        
-        reranked_results, rerank_time = await reranking_service.rerank_results(
-            query=rerank_query.query,
-            results=rerank_query.results,
-            top_k=rerank_query.top_k
-        )
-        
-        response = RerankResponse(
-            query=rerank_query.query,
-            reranked_results=reranked_results,
-            original_count=len(rerank_query.results),
-            reranked_count=len(reranked_results),
-            rerank_time_ms=rerank_time
-        )
-        
-        logger.info(f"Reranking completed in {rerank_time:.2f}ms")
-        return response
-        
-    except Exception as e:
-        logger.error(f"Reranking failed: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Reranking failed: {str(e)}"
-        )
-
-
-# Streaming endpoint temporarily disabled due to sse_starlette dependency
-# @router.post("/query/stream")
-# async def rag_query_stream(
-#     query: RAGQuery,
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     """
-#     Streaming RAG endpoint for real-time responses
-#     
-#     Returns Server-Sent Events (SSE) stream with incremental
-#     response data including sources and generated text.
-#     """
-#     try:
-#         logger.info(f"Streaming RAG query received: {query.query[:100]}...")
-#         
-#         async def event_generator():
-#             try:
-#                 async for chunk in rag_service.streaming_query(query):
-#                     # Convert chunk to JSON
-#                     chunk_data = {
-#                         "type": chunk.type,
-#                         "content": chunk.content,
-#                         "is_final": chunk.is_final
-#                     }
-#                     
-#                     # Handle different content types for JSON serialization
-#                     if chunk.type == "sources" and isinstance(chunk.content, list):
-#                         # Convert SearchResult objects to dicts
-#                         chunk_data["content"] = [
-#                             result.dict() for result in chunk.content
-#                         ]
-#                     
-#                     yield {
-#                         "event": "chunk",
-#                         "data": json.dumps(chunk_data)
-#                     }
-#                     
-#                     if chunk.is_final:
-#                         break
-#                         
-#             except Exception as e:
-#                 logger.error(f"Streaming error: {e}")
-#                 yield {
-#                     "event": "error",
-#                     "data": json.dumps({"error": str(e)})
-#                 }
-#         
-#         return EventSourceResponse(event_generator())
-#         
-#     except Exception as e:
-#         logger.error(f"Streaming RAG query failed: {e}")
-#         raise HTTPException(
-#             status_code=500,
-#             detail=f"Streaming query failed: {str(e)}"
-#         )
-
-
-@router.post("/conversation", response_model=RAGResponse)
-async def conversational_query(
-    query: str = Query(..., description="Current user query"),
-    conversation_history: List[ChatMessage] = [],
-    strategy: SearchStrategy = SearchStrategy.RRF_FUSION,
-    top_k: int = Query(10, ge=1, le=50),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    RAG query with conversation context
-    
-    Processes a query considering the conversation history
-    for more contextual and coherent responses.
-    """
-    try:
-        logger.info(f"Conversational query with {len(conversation_history)} history messages")
-        
-        response = await rag_service.conversational_query(
-            query=query,
-            conversation_history=conversation_history,
-            strategy=strategy,
-            top_k=top_k
-        )
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Conversational query failed: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Conversational query failed: {str(e)}"
-        )
-
 
 @router.get("/health", response_model=RAGHealthCheck)
 async def health_check():
@@ -386,30 +250,67 @@ async def batch_rag_query(
             detail=f"Batch query failed: {str(e)}"
         )
 
+# Add cache management endpoints
+@router.get("/cache/stats")
+async def get_cache_stats(current_user: dict = Depends(get_current_user)):
+    """Get cache statistics and performance metrics"""
+    try:
+        stats = await cache_service.get_cache_stats()
+        return {
+            "cache_enabled": rag_config.enable_caching,
+            "redis_stats": stats,
+            "cache_config": {
+                "response_ttl": rag_config.response_cache_ttl,
+                "embedding_ttl": rag_config.embedding_cache_ttl,
+                "search_ttl": rag_config.search_cache_ttl,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to get cache stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Cache stats failed: {str(e)}")
 
-def _get_strategy_description(strategy: str) -> str:
-    """Get human-readable description for a search strategy"""
-    descriptions = {
-        SearchStrategies.VECTOR_ONLY: "Pure semantic vector search using embeddings",
-        SearchStrategies.HYBRID: "Combines vector search with keyword matching using BM25",
-        SearchStrategies.RERANKED: "Vector search results reranked using cross-encoder models",
-        SearchStrategies.RRF_FUSION: "Full hybrid approach with RRF fusion and neural reranking"
-    }
-    return descriptions.get(strategy, "Unknown strategy")
+@router.delete("/cache/clear")
+async def clear_cache(
+    cache_type: str = Query("all", description="Cache type to clear: all, responses, embeddings, search, sessions"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Clear cache by type"""
+    try:
+        if cache_type == "all":
+            patterns = ["response", "embedding", "search", "session"]
+        else:
+            patterns = [cache_type]
+        
+        total_cleared = 0
+        for pattern in patterns:
+            cleared = await cache_service.clear_cache_pattern(pattern)
+            total_cleared += cleared
+        
+        return {
+            "message": f"Cleared {total_cleared} cache entries",
+            "cache_type": cache_type
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to clear cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Cache clear failed: {str(e)}")
 
-
-def _get_strategy_components(config: Dict[str, bool]) -> List[str]:
-    """Get list of components used by a strategy"""
-    components = []
-    if config.get("use_vector"):
-        components.append("Vector Search")
-    if config.get("use_keyword"):
-        components.append("Keyword Search (BM25)")
-    if config.get("use_reranking"):
-        components.append("Neural Reranking")
-    if config.get("use_rrf"):
-        components.append("RRF Fusion")
-    return components
+@router.get("/cache/health")
+async def cache_health_check():
+    """Check cache system health"""
+    try:
+        is_healthy = await cache_service.health_check()
+        return {
+            "cache_enabled": rag_config.enable_caching,
+            "redis_healthy": is_healthy,
+            "redis_url": rag_config.redis_url.split('@')[-1] if '@' in rag_config.redis_url else rag_config.redis_url
+        }
+    except Exception as e:
+        return {
+            "cache_enabled": rag_config.enable_caching,
+            "redis_healthy": False,
+            "error": str(e)
+        }
 
 
 # Session-based chat endpoints
@@ -572,62 +473,29 @@ async def list_user_sessions(
             status_code=500,
             detail=f"Failed to list sessions: {str(e)}"
         )
+# endregion
+# region Helper functions
+def _get_strategy_description(strategy: str) -> str:
+    """Get human-readable description for a search strategy"""
+    descriptions = {
+        SearchStrategies.VECTOR_ONLY: "Pure semantic vector search using embeddings",
+        SearchStrategies.HYBRID: "Combines vector search with keyword matching using BM25",
+        SearchStrategies.RERANKED: "Vector search results reranked using cross-encoder models",
+        SearchStrategies.RRF_FUSION: "Full hybrid approach with RRF fusion and neural reranking"
+    }
+    return descriptions.get(strategy, "Unknown strategy")
 
 
-@router.post("/chat/session/{session_id}/extend")
-async def extend_session_ttl(
-    session_id: str,
-    additional_hours: int = Query(24, ge=1, le=168, description="Hours to add to TTL"),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Extend session time-to-live
-    
-    Adds additional time to prevent session expiration.
-    """
-    try:
-        session = await session_service.extend_session_ttl(session_id, additional_hours)
-        
-        if not session:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Session {session_id} not found"
-            )
-        
-        logger.info(f"Extended session {session_id} TTL by {additional_hours} hours")
-        return {
-            "message": f"Session TTL extended by {additional_hours} hours",
-            "new_expires_at": session.expires_at
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to extend session TTL: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to extend session: {str(e)}"
-        )
-
-
-@router.get("/chat/stats")
-async def get_session_stats(current_user: dict = Depends(get_current_user)):
-    """
-    Get session statistics for monitoring and debugging
-    
-    Returns system-wide session statistics.
-    """
-    try:
-        stats = await session_service.get_session_stats()
-        return stats
-        
-    except Exception as e:
-        logger.error(f"Failed to get session stats: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get statistics: {str(e)}"
-        )
-
-
-# Exception handlers removed - APIRouter doesn't support exception_handler
-# These would need to be added to the main FastAPI app in main.py if needed
+def _get_strategy_components(config: Dict[str, bool]) -> List[str]:
+    """Get list of components used by a strategy"""
+    components = []
+    if config.get("use_vector"):
+        components.append("Vector Search")
+    if config.get("use_keyword"):
+        components.append("Keyword Search (BM25)")
+    if config.get("use_reranking"):
+        components.append("Neural Reranking")
+    if config.get("use_rrf"):
+        components.append("RRF Fusion")
+    return components
+# endregion

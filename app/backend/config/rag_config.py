@@ -16,7 +16,6 @@ class RAGConfig(BaseSettings):
     # API Keys
     openai_api_key: str = Field("", env="OPENAI_API_KEY")
     pinecone_api_key: str = Field("", env="PINECONE_API_KEY")
-    
     # Pinecone Configuration
     pinecone_index_name: str = Field("fintbx-embeddings", env="PINECONE_INDEX_NAME")
     pinecone_environment: str = Field("us-east-1", env="PINECONE_ENVIRONMENT")
@@ -25,6 +24,19 @@ class RAGConfig(BaseSettings):
     embedding_model: str = Field("text-embedding-3-large", env="EMBEDDING_MODEL")
     generation_model: str = Field("gpt-4o-mini", env="GENERATION_MODEL")
     embedding_dimension: int = Field(3072, env="EMBEDDING_DIMENSION")
+    
+    # Redis Configuration
+    redis_url: str = Field("redis://localhost:6379", env="REDIS_URL")
+    redis_password: str = Field("", env="REDIS_PASSWORD")
+    redis_ssl: bool = Field(False, env="REDIS_SSL")
+    redis_max_connections: int = Field(10, env="REDIS_MAX_CONNECTIONS")
+    cache_prefix: str = Field("aurelia", env="CACHE_PREFIX")
+    response_cache_ttl: int = Field(1800, env="RESPONSE_CACHE_TTL")
+    embedding_cache_ttl: int = Field(86400, env="EMBEDDING_CACHE_TTL")
+    search_cache_ttl: int = Field(3600, env="SEARCH_CACHE_TTL")
+    session_cache_ttl: int = Field(86400, env="SESSION_CACHE_TTL")
+    enable_caching: bool = Field(True, env="ENABLE_CACHING")
+    cache_ttl: int = Field(3600, env="CACHE_TTL")  # 1 hour
     
     # Search Configuration
     default_top_k: int = Field(10, env="DEFAULT_TOP_K")
@@ -52,8 +64,6 @@ class RAGConfig(BaseSettings):
     # Performance Configuration
     request_timeout: int = Field(30, env="REQUEST_TIMEOUT")
     max_concurrent_requests: int = Field(10, env="MAX_CONCURRENT_REQUESTS")
-    enable_caching: bool = Field(True, env="ENABLE_CACHING")
-    cache_ttl: int = Field(3600, env="CACHE_TTL")  # 1 hour
     
     # Logging
     log_level: str = Field("INFO", env="LOG_LEVEL")
