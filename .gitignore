@@ -1,4 +1,6 @@
 .venv/
+test_venv/
+
 .env
 .env.local
 .env.development.local

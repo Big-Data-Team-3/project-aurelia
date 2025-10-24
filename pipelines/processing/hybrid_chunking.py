@@ -589,8 +589,8 @@ def main():
     print()
     
     # Configuration
-    input_path = Path("data/final/docling_blocks.jsonl")
-    output_dir = Path("data/chunking_output")
+    input_path = Path("data/enhanced_pymupdf_output/enhanced_pymupdf_blocks.jsonl")
+    output_dir = Path("data/chunking_output_pymudpdf")
     output_path = output_dir / "hybrid_intelligent_chunks.jsonl"
     embedding_path = output_dir / "hybrid_intelligent_chunks_for_embedding.jsonl"
     stats_path = output_dir / "chunk_statistics.csv"

@@ -1,0 +1,64 @@
+schema: '2.0'
+stages:
+  pymupdf_parsing:
+    cmd: python pipelines/pymupdf_parser.py
+    deps:
+    - path: data/fintbx_ex.pdf
+      hash: md5
+      md5: 90741fcda1f1cade96d76e777e4116a2
+      size: 1219455
+    - path: pipelines/pymupdf_parser.py
+      hash: md5
+      md5: 580616c70a56cf5e2be756f5ac22a7bd
+      size: 47753
+    outs:
+    - path: data/enhanced_pymupdf_output/enhanced_pymupdf_blocks.jsonl
+      hash: md5
+      md5: 7ee8ac2d40c7224682a752ab5d36f6b6
+      size: 19350077
+    - path: data/enhanced_pymupdf_output/enhanced_pymupdf_cleanup_report.json
+      hash: md5
+      md5: 231f9f99cb0ca8b2307e048800604ec6
+      size: 1740
+  hybrid_chunking:
+    cmd: python pipelines/processing/hybrid_chunking.py
+    deps:
+    - path: data/enhanced_pymupdf_output/enhanced_pymupdf_blocks.jsonl
+      hash: md5
+      md5: 7ee8ac2d40c7224682a752ab5d36f6b6
+      size: 19350077
+    - path: pipelines/processing/hybrid_chunking.py
+      hash: md5
+      md5: 59a8e1074bcd1050324200dff0823ac5
+      size: 23046
+    outs:
+    - path: data/chunking_output_pymudpdf/chunk_statistics.csv
+      hash: md5
+      md5: f87f1cff763266a6fcd823dfc9218db0
+      size: 2847493
+    - path: data/chunking_output_pymudpdf/hybrid_intelligent_chunks.jsonl
+      hash: md5
+      md5: 219ba0741de67904fc71e3bd52223542
+      size: 29164156
+    - path: 
+        data/chunking_output_pymudpdf/hybrid_intelligent_chunks_for_embedding.jsonl
+      hash: md5
+      md5: 7801ca9389125ed60514ff14284ecf56
+      size: 13481190
+  embedding:
+    cmd: python pipelines/embedding.py
+    deps:
+    - path: 
+        data/chunking_output_pymudpdf/hybrid_intelligent_chunks_for_embedding.jsonl
+      hash: md5
+      md5: 7801ca9389125ed60514ff14284ecf56
+      size: 13481190
+    - path: pipelines/embedding.py
+      hash: md5
+      md5: fe57c19c8319b2751c00be8083ef661b
+      size: 15011
+    outs:
+    - path: data/embedding_output_pymudpdf/embedding_pipeline_report.json
+      hash: md5
+      md5: a1a7f5e94cf0e0ac19dc5a98acd5bf91
+      size: 338
