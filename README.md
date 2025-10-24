@@ -4,7 +4,7 @@ A sophisticated Retrieval-Augmented Generation (RAG) system built with FastAPI a
 
 **GitHub Repo:** [Big-Data-Team-3/pdf-parser](https://github.com/Big-Data-Team-3/project-aurelia)
  
-- **Interactive Tutorial**: [Google Codelabs - PDF Parser Guide](https://codelabs-preview.appspot.com/?file_id=1WW1CRWUCD43Zuu0kj5Udn5pIm5i5cgRwh0CzkGeBlZo)
+- **Interactive Tutorial**: [Google Codelabs](https://codelabs-preview.appspot.com/?file_id=1WW1CRWUCD43Zuu0kj5Udn5pIm5i5cgRwh0CzkGeBlZo)
 
 - **Recording Link** : [Video Recording](https://drive.google.com/drive/folders/1ovXMpd7xj6oKaeUFmPXziRpBvTstffFq?usp=drive_link)
 
