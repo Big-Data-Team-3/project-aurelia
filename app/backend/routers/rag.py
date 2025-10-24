@@ -26,6 +26,7 @@ from services.reranking import reranking_service
 from services.session_service import session_service
 from services.context_manager import context_manager
 from services.query_cache_service import query_cache_service
+from services.instructor_classifier import instructor_classifier
 from config.rag_config import rag_config, SearchStrategies
 from services.cache_service import cache_service
 # endregion
@@ -325,6 +326,50 @@ async def health_check():
         raise HTTPException(
             status_code=500,
             detail=f"Health check failed: {str(e)}"
+        )
+
+# Get Instructor service status
+@router.get("/instructor/status")
+async def get_instructor_status():
+    """
+    Get Instructor service status including circuit breaker state
+    
+    Returns the current status of the Instructor classifier including
+    circuit breaker state, failure count, and configuration.
+    """
+    try:
+        status = instructor_classifier.get_status()
+        return {
+            "status": "healthy" if not status["circuit_breaker_open"] else "circuit_breaker_open",
+            "instructor_status": status,
+            "financial_enhancement_enabled": rag_config.enable_financial_enhancement,
+            "max_concurrent_enhancements": rag_config.max_concurrent_enhancements,
+            "enhancement_delay": rag_config.financial_enhancement_delay
+        }
+    except Exception as e:
+        logger.error(f"Instructor status check failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Instructor status check failed: {str(e)}"
+        )
+
+# Reset Instructor circuit breaker
+@router.post("/instructor/reset")
+async def reset_instructor_circuit_breaker():
+    """
+    Manually reset the Instructor circuit breaker
+    
+    This endpoint allows manual reset of the circuit breaker
+    if it gets stuck in an open state.
+    """
+    try:
+        instructor_classifier.reset_circuit_breaker()
+        return {"message": "Circuit breaker reset successfully", "status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to reset circuit breaker: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset circuit breaker: {str(e)}"
         )
 
 # Get RAG system configuration

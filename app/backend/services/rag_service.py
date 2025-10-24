@@ -31,6 +31,8 @@ from services.session_service import session_service
 from services.query_rewriter import query_rewriter
 from services.context_manager import context_manager
 from services.query_classifier import query_classifier, QueryType
+from services.instructor_classifier import instructor_classifier
+from models.instructor_models import QueryType as InstructorQueryType
 
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,8 @@ class RAGService:
     
     def __init__(self):
         self.services_initialized = False
+        # Concurrent request limiting for financial enhancement
+        self.enhancement_semaphore = asyncio.Semaphore(rag_config.max_concurrent_enhancements)
     
     async def initialize_services(self):
         """Initialize all RAG services"""
@@ -332,9 +336,15 @@ class RAGService:
                 conversation_history = context_window.messages
                 logger.info(f"Using session {session.session_id} with {len(conversation_history)} context messages")
             
-            # Step 3: Classify query type
-            query_type = await query_classifier.classify_query(rag_query.query, conversation_history)
-            logger.info(f"Query classified as: {query_type.value}")
+            # Step 3: Classify query type using Instructor with fallback
+            try:
+                classification = await instructor_classifier.classify_query(rag_query.query, conversation_history)
+                query_type = classification.query_type
+                logger.info(f"Query classified as: {query_type.value} (confidence: {classification.confidence:.2f})")
+            except Exception as e:
+                logger.warning(f"Instructor classification failed, using fallback: {e}")
+                query_type = await query_classifier.classify_query(rag_query.query, conversation_history)
+                logger.info(f"Fallback classification: {query_type.value}")
             
             # Step 4: Route to appropriate handler
             if query_type == QueryType.EXTERNAL:
@@ -352,7 +362,15 @@ class RAGService:
             
             # Step 6: Add classification info to metadata
             response.metadata['query_classification'] = query_type.value
-            response.metadata['classification_reason'] = query_classifier.get_classification_reason(rag_query.query, query_type)
+            if 'classification' in locals():
+                # Instructor classification was used
+                response.metadata['classification_confidence'] = classification.confidence
+                response.metadata['classification_reasoning'] = classification.reasoning
+                response.metadata['classification_method'] = 'instructor'
+            else:
+                # Fallback classification was used
+                response.metadata['classification_reason'] = query_classifier.get_classification_reason(rag_query.query, query_type)
+                response.metadata['classification_method'] = 'fallback'
             
             total_time = (time.time() - start_time) * 1000
             response.total_time_ms = total_time
@@ -939,7 +957,7 @@ class RAGService:
                 (len(search_results) < rag_query.rerank_top_k or avg_confidence < confidence_threshold)):
                 
                 logger.info(f"Applying Wikipedia fallback because of insufficient results with avg confidence of {avg_confidence:.2f}")
-                wiki_results, wiki_time = await self._apply_wikipedia_fallback(rewritten_query)
+                wiki_results, wiki_time = await self._apply_wikipedia_fallback(rag_query.query)
                 print(f"-----------------")
                 print(f"Wikipedia fallback results: {wiki_results}")
                 print(f"-----------------")
@@ -979,10 +997,51 @@ class RAGService:
                 answer = "I couldn't find relevant information to answer your question. Please try rephrasing your query or asking about a different topic."
                 generation_time = 0.0
             
+            # Step 6.5: Enhance response with structured financial output
+            enhanced_answer = answer
+            structured_metadata = {}
+            
+            if (answer and not answer.startswith("I couldn't find relevant information") 
+                and rag_config.enable_financial_enhancement):
+                try:
+                    logger.info("Enhancing response with structured financial output...")
+                    
+                    # Use semaphore to limit concurrent enhancements
+                    async with self.enhancement_semaphore:
+                        # Add configurable delay to prevent overwhelming the API
+                        await asyncio.sleep(rag_config.financial_enhancement_delay)
+                        
+                        financial_response = await instructor_classifier.enhance_financial_response(
+                            original_answer=answer,
+                            query=rag_query.query,
+                            sources=search_results
+                        )
+                    
+                    # Use enhanced answer
+                    enhanced_answer = financial_response.answer
+                    
+                    # Add structured metadata
+                    structured_metadata = {
+                        'financial_enhancement': True,
+                        'formulas_found': financial_response.formulas,
+                        'key_metrics': financial_response.key_metrics,
+                        'response_confidence': financial_response.confidence,
+                        'follow_up_questions': financial_response.follow_up_questions,
+                        'risk_level': financial_response.risk_level,
+                        'time_horizon': financial_response.time_horizon,
+                        'matlab_code': financial_response.matlab_code
+                    }
+                    
+                    logger.info(f"Response enhanced with {len(financial_response.formulas)} formulas and {len(financial_response.key_metrics)} metrics")
+                    
+                except Exception as e:
+                    logger.warning(f"Financial response enhancement failed: {e}")
+                    structured_metadata = {'financial_enhancement': False, 'enhancement_error': str(e)}
+            
             # Step 7: Create response
             response = RAGResponse(
                 query=rag_query.query,
-                answer=answer,
+                answer=enhanced_answer,  # Use enhanced answer
                 sources=search_results if rag_query.include_sources else [],
                 strategy_used=rag_query.strategy,
                 session_id=None,  # Will be set by caller
@@ -1000,7 +1059,8 @@ class RAGService:
                         r.source_type.value == 'wikipedia' for r in search_results
                     ),
                     'query_rewriting_enabled': True,
-                    'document_search_performed': True
+                    'document_search_performed': True,
+                    **structured_metadata  # Include structured financial metadata
                 },
                 retrieval_time_ms=retrieval_time,
                 generation_time_ms=generation_time,

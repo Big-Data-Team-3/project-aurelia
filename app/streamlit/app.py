@@ -1,7 +1,11 @@
 import streamlit as st
 import requests
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List
+
+# Configuration
+FRONTEND_REQUEST_TIMEOUT = 120  # seconds - increased from 30 to prevent premature timeouts
+HEALTH_CHECK_TIMEOUT = 10  # seconds - for health checks
 
 # Page configuration
 st.set_page_config(
@@ -229,7 +233,7 @@ def call_cached_rag_api(query: str, api_base_url: str) -> Dict[str, Any]:
             "user_id": "streamlit_user"
         }
         
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, timeout=FRONTEND_REQUEST_TIMEOUT)
         response.raise_for_status()
         
         return response.json()
@@ -439,6 +443,10 @@ def show_rag_chat():
                         # Display response
                         st.write(response["answer"])
                         
+                        # Display structured financial information if available
+                        if "metadata" in response and response["metadata"].get("financial_enhancement"):
+                            display_structured_financial_info(response["metadata"])
+                        
                         # Show timing info
                         if "total_time_ms" in response:
                             st.caption(f"⏱️ Generated in {response['total_time_ms']:.0f}ms")
@@ -539,7 +547,7 @@ def call_rag_api(query: str, config: Dict[str, Any]) -> Dict[str, Any]:
             "stream": True
         }
         
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, timeout=FRONTEND_REQUEST_TIMEOUT)
         response.raise_for_status()
         
         data = response.json()
@@ -569,7 +577,7 @@ def get_cache_stats(api_base_url: str) -> Dict[str, Any]:
     """Get cache statistics"""
     try:
         url = f"{api_base_url}/rag/cache/stats"
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=HEALTH_CHECK_TIMEOUT)
         response.raise_for_status()
         return response.json()
     except Exception:
@@ -579,11 +587,57 @@ def check_rag_health(api_base_url: str) -> Dict[str, Any]:
     """Check RAG system health"""
     try:
         url = f"{api_base_url}/rag/health"
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=HEALTH_CHECK_TIMEOUT)
         response.raise_for_status()
         return response.json()
     except Exception:
         return None
+
+
+def display_structured_financial_info(metadata: Dict[str, Any]):
+    """Display structured financial information from Instructor enhancement"""
+    try:
+        with st.expander("📊 Financial Analysis", expanded=False):
+            # Response Confidence
+            if "response_confidence" in metadata:
+                confidence = metadata["response_confidence"]
+                confidence_color = "green" if confidence > 0.7 else "orange" if confidence > 0.4 else "red"
+                st.markdown(f"**🎯 Response Confidence:** <span style='color: {confidence_color}'>{confidence:.2f}</span>", unsafe_allow_html=True)
+            
+            # Key Metrics
+            if "key_metrics" in metadata and metadata["key_metrics"]:
+                st.markdown("**📈 Key Financial Metrics:**")
+                for metric in metadata["key_metrics"]:
+                    st.markdown(f"• {metric}")
+            
+            # Mathematical Formulas
+            if "formulas_found" in metadata and metadata["formulas_found"]:
+                st.markdown("**🧮 Mathematical Formulas:**")
+                for formula in metadata["formulas_found"]:
+                    st.markdown(f"• `{formula}`")
+            
+            # Risk Level
+            if "risk_level" in metadata and metadata["risk_level"]:
+                risk_color = {"low": "green", "medium": "orange", "high": "red"}.get(metadata["risk_level"], "gray")
+                st.markdown(f"**⚠️ Risk Level:** <span style='color: {risk_color}'>{metadata['risk_level'].title()}</span>", unsafe_allow_html=True)
+            
+            # Time Horizon
+            if "time_horizon" in metadata and metadata["time_horizon"]:
+                st.markdown(f"**⏰ Time Horizon:** {metadata['time_horizon'].title()}")
+            
+            # Follow-up Questions
+            if "follow_up_questions" in metadata and metadata["follow_up_questions"]:
+                st.markdown("**❓ Suggested Follow-up Questions:**")
+                for question in metadata["follow_up_questions"]:
+                    st.markdown(f"• {question}")
+            
+            # MATLAB Code
+            if "matlab_code" in metadata and metadata["matlab_code"]:
+                st.markdown("**💻 MATLAB Code:**")
+                st.code(metadata["matlab_code"], language="matlab")
+                
+    except Exception as e:
+        st.error(f"Error displaying financial analysis: {e}")
 
 
 # Removed unused functions to keep the app simple and focused on RAG chat

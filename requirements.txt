@@ -27,6 +27,7 @@ sentence-transformers==2.2.2
 wikipedia-api==0.6.0
 rank-bm25==0.2.2
 sse-starlette==1.6.5
+instructor==1.2.0
 
 # Additional utilities
 numpy==1.24.3

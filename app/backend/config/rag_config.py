@@ -62,7 +62,7 @@ class RAGConfig(BaseSettings):
     similarity_threshold: float = Field(0.7, env="SIMILARITY_THRESHOLD")
     
     # Performance Configuration
-    request_timeout: int = Field(30, env="REQUEST_TIMEOUT")
+    request_timeout: int = Field(60, env="REQUEST_TIMEOUT")  # Increased from 30 to 60 seconds
     max_concurrent_requests: int = Field(10, env="MAX_CONCURRENT_REQUESTS")
     
     # Logging
@@ -73,6 +73,16 @@ class RAGConfig(BaseSettings):
     session_default_ttl_hours: int = Field(24, env="SESSION_DEFAULT_TTL_HOURS")
     session_max_context_messages: int = Field(20, env="SESSION_MAX_CONTEXT_MESSAGES")
     session_cleanup_interval_minutes: int = Field(60, env="SESSION_CLEANUP_INTERVAL_MINUTES")
+    
+    # Financial Enhancement Configuration
+    enable_financial_enhancement: bool = Field(True, env="ENABLE_FINANCIAL_ENHANCEMENT")
+    financial_enhancement_delay: float = Field(0.5, env="FINANCIAL_ENHANCEMENT_DELAY")  # seconds
+    max_concurrent_enhancements: int = Field(3, env="MAX_CONCURRENT_ENHANCEMENTS")
+    
+    # Timeout Configuration
+    instructor_classification_timeout: int = Field(30, env="INSTRUCTOR_CLASSIFICATION_TIMEOUT")  # seconds
+    instructor_enhancement_timeout: int = Field(45, env="INSTRUCTOR_ENHANCEMENT_TIMEOUT")  # seconds
+    frontend_request_timeout: int = Field(120, env="FRONTEND_REQUEST_TIMEOUT")  # seconds
     
     # PII Detection Configuration
     enable_pii_detection: bool = Field(True, env="ENABLE_PII_DETECTION")
