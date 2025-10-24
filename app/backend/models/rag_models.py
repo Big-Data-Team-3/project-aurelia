@@ -41,7 +41,7 @@ class SearchResult(BaseModel):
 
 
 class RAGQuery(BaseModel):
-    """Request model for RAG queries"""
+    """Request model for RAG queries with session management"""
     query: str = Field(..., min_length=1, max_length=1000, description="User query")
     strategy: SearchStrategy = Field(SearchStrategy.RRF_FUSION, description="Search strategy to use")
     top_k: int = Field(10, ge=1, le=50, description="Number of results to retrieve")
@@ -51,6 +51,11 @@ class RAGQuery(BaseModel):
     stream: bool = Field(False, description="Stream the response")
     temperature: float = Field(0.1, ge=0.0, le=1.0, description="Generation temperature")
     max_tokens: int = Field(1000, ge=100, le=2000, description="Maximum tokens in response")
+    
+    # Session management fields
+    session_id: Optional[str] = Field(None, description="Existing session ID for multi-turn conversations")
+    user_id: Optional[str] = Field(None, description="User identifier for session management")
+    create_session: bool = Field(True, description="Auto-create session if not provided")
     
     @validator('query')
     def validate_query(cls, v):
@@ -76,7 +81,7 @@ class RerankQuery(BaseModel):
 
 
 class RAGResponse(BaseModel):
-    """Response model for RAG queries"""
+    """Response model for RAG queries with session information"""
     query: str = Field(..., description="Original query")
     answer: str = Field(..., description="Generated answer")
     sources: List[SearchResult] = Field(default_factory=list, description="Source documents used")
@@ -88,6 +93,11 @@ class RAGResponse(BaseModel):
     retrieval_time_ms: Optional[float] = Field(None, description="Time taken for retrieval in milliseconds")
     generation_time_ms: Optional[float] = Field(None, description="Time taken for generation in milliseconds")
     total_time_ms: Optional[float] = Field(None, description="Total processing time in milliseconds")
+    
+    # Session information
+    session_id: Optional[str] = Field(None, description="Session ID for multi-turn conversations")
+    message_count: int = Field(0, description="Total number of messages in session")
+    context_strategy: Optional[str] = Field(None, description="Context management strategy used")
 
 
 class SearchResponse(BaseModel):

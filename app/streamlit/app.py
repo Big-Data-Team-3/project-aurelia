@@ -51,6 +51,19 @@ def main():
 def show_rag_chat():
     """Simple RAG Chat Interface"""
     
+    # Initialize session state first (before any other code that might access it)
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = None
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = "streamlit_user"
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+        # Add welcome message
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "👋 Hello! I'm your financial document assistant. Ask me anything about the documents in the system!"
+        })
+    
     # Sidebar Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
@@ -82,6 +95,24 @@ def show_rag_chat():
             temperature = st.slider("Creativity", 0.0, 1.0, 0.1, 0.1)
             max_tokens = st.slider("Max response length", 500, 2000, 1000, 100)
         
+        # Session Management
+        st.markdown("---")
+        st.subheader("🔗 Session Management")
+        
+        if st.session_state.session_id:
+            st.success(f"✅ Active Session")
+            
+            if st.button("🔄 New Session"):
+                st.session_state.session_id = None
+                st.session_state.messages = [{
+                    "role": "assistant",
+                    "content": "👋 New session started! Ask me anything about the financial documents."
+                }]
+                st.rerun()
+        else:
+            st.info("🆕 No active session")
+            st.caption("A new session will be created with your first query")
+        
         # System status
         st.markdown("---")
         if st.button("🔍 Check System Health"):
@@ -103,14 +134,7 @@ def show_rag_chat():
                 document_count = len([s for s in last_message["sources"] if s.get('source_type') != 'wikipedia'])
                 
     
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-        # Add welcome message
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "👋 Hello! I'm your financial document assistant. Ask me anything about the documents in the system!"
-        })
+    # Session state is already initialized at the beginning of the function
     
     # Chat History Display
     st.markdown("### 💬 Chat")
@@ -273,7 +297,7 @@ def show_rag_chat():
 
 
 def call_rag_api(query: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Call the RAG API endpoint"""
+    """Call the RAG API endpoint with session management"""
     try:
         url = f"{config['api_base_url']}/rag/query"
         
@@ -286,13 +310,23 @@ def call_rag_api(query: str, config: Dict[str, Any]) -> Dict[str, Any]:
             "enable_wikipedia_fallback": config["enable_wikipedia"],
             "temperature": config["temperature"],
             "max_tokens": config["max_tokens"],
+            "session_id": getattr(st.session_state, "session_id", None),  # Pass existing session
+            "user_id": getattr(st.session_state, "user_id", "streamlit_user"),
+            "create_session": True,  # Allow session creation
             "stream": True
         }
         
         response = requests.post(url, json=payload, timeout=30)
         response.raise_for_status()
         
-        return response.json()
+        data = response.json()
+        
+        # Store session_id for next request
+        if "session_id" in data and data["session_id"]:
+            if hasattr(st.session_state, "session_id"):
+                st.session_state.session_id = data["session_id"]
+        
+        return data
         
     except requests.exceptions.ConnectionError:
         st.error("🔌 Cannot connect to backend. Make sure it's running on the configured URL.")

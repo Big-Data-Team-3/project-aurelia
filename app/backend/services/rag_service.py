@@ -6,6 +6,7 @@ Provides high-level interface for RAG operations
 import time
 import asyncio
 from typing import List, Dict, Any, Optional, AsyncGenerator
+from datetime import datetime, timedelta
 import logging
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +28,7 @@ from services.query_processor import query_processor
 from services.chatgpt_service import chatgpt_service
 from services.session_service import session_service
 from services.query_rewriter import query_rewriter
+from services.context_manager import context_manager
 
 
 logger = logging.getLogger(__name__)
@@ -81,8 +83,9 @@ class RAGService:
             if not session:
                 raise ValueError(f"Session {session_id} not found or expired")
             
-            # Step 1: Process query through pipeline (PII filtering, intent classification, etc.)
-            conversation_history = session.messages[-10:] # Last 10 messages for context
+            # Step 1: Get optimized context using context manager
+            context_window = await context_manager.get_optimized_context(session, message_request.message)
+            conversation_history = context_window.messages
             
             query_processing_result = await query_processor.process_query(
                 message_request.message, 
@@ -241,15 +244,80 @@ class RAGService:
         
         return answer, search_results
     
+    async def _handle_session_management(self, rag_query: RAGQuery) -> Optional[ChatSession]:
+        """Smart session management with user-based fallback"""
+        try:
+            session = None
+            user_id = rag_query.user_id or "anonymous"
+            
+            # Strategy 1: Use provided session_id
+            if rag_query.session_id:
+                session = await session_service.get_session(rag_query.session_id)
+                if session:
+                    logger.info(f"Using provided session {session.session_id}")
+                    return session
+                else:
+                    logger.warning(f"Provided session {rag_query.session_id} not found")
+            
+            # Strategy 2: Find existing user session if no session_id or session not found
+            if not session and rag_query.create_session:
+                user_sessions = await session_service.get_user_sessions(user_id, active_only=True)
+                
+                if user_sessions:
+                    # Use most recent session (already sorted by updated_at desc)
+                    session = user_sessions[0]
+                    logger.info(f"Using existing user session {session.session_id}")
+                else:
+                    # Strategy 3: Create new session only if no existing sessions
+                    session = await session_service.create_session(user_id)
+                    logger.info(f"Created new session {session.session_id} for user {user_id}")
+            
+            return session
+            
+        except Exception as e:
+            logger.error(f"Session management failed: {e}")
+            return None
+
+    async def _update_session_with_conversation(
+        self, 
+        session: ChatSession, 
+        user_query: str, 
+        assistant_answer: str, 
+        sources: List[SearchResult]
+    ):
+        """Update session with new conversation"""
+        try:
+            # Add user message
+            user_message = ChatMessage(
+                role="user",
+                content=user_query,
+                timestamp=datetime.now()
+            )
+            await session_service.update_session(session.session_id, user_message)
+            
+            # Add assistant message
+            assistant_message = ChatMessage(
+                role="assistant",
+                content=assistant_answer,
+                sources=sources,
+                timestamp=datetime.now()
+            )
+            await session_service.update_session(session.session_id, assistant_message)
+            
+            logger.debug(f"Updated session {session.session_id} with new conversation")
+            
+        except Exception as e:
+            logger.error(f"Failed to update session with conversation: {e}")
+
     async def query(self, rag_query: RAGQuery) -> RAGResponse:
         """
-        Simplified RAG query method with query rewriting and Wikipedia fallback
+        Enhanced RAG query method with session management, query rewriting and Wikipedia fallback
         
         Args:
-            rag_query: RAG query parameters
+            rag_query: RAG query parameters with optional session management
             
         Returns:
-            Complete RAG response with answer and sources
+            Complete RAG response with answer, sources, and session information
         """
         start_time = time.time()
         
@@ -257,7 +325,19 @@ class RAGService:
             print(f"--------------------------------")
             await self.initialize_services()
             logger.info(f"Query: {rag_query.query}")
-            # Step 1: Rewrite query for better retrieval
+            
+            # Step 1: Handle session management
+            session = await self._handle_session_management(rag_query)
+            
+            # Step 2: Get optimized context if session exists
+            context_window = None
+            conversation_history = []
+            if session:
+                context_window = await context_manager.get_optimized_context(session, rag_query.query)
+                conversation_history = context_window.messages
+                logger.info(f"Using session {session.session_id} with {len(conversation_history)} context messages")
+            
+            # Step 3: Rewrite query for better retrieval
             rewritten_query = await query_rewriter.rewrite_query(rag_query.query)
             
             # Step 2: Retrieve documents using rewritten query
@@ -302,27 +382,44 @@ class RAGService:
             
             search_results = unique_results[:rag_query.rerank_top_k]
             
-            # Step 5: Generate response
+            # Step 5: Generate response with conversation history if available
             if search_results:
-                # Use original query for generation to maintain user intent
-                answer, generation_time = await generation_service.generate_response(
-                    query=rag_query.query,  # Use original query for generation
-                    context_results=search_results,
-                    temperature=rag_query.temperature,
-                    max_tokens=rag_query.max_tokens
-                )
+                if conversation_history:
+                    # Use conversation-aware generation
+                    answer, generation_time = await generation_service.generate_with_conversation_history(
+                        query=rag_query.query,
+                        context_results=search_results,
+                        conversation_history=conversation_history,
+                        temperature=rag_query.temperature,
+                        max_tokens=rag_query.max_tokens
+                    )
+                else:
+                    # Use standard generation
+                    answer, generation_time = await generation_service.generate_response(
+                        query=rag_query.query,
+                        context_results=search_results,
+                        temperature=rag_query.temperature,
+                        max_tokens=rag_query.max_tokens
+                    )
             else:
                 answer = "I couldn't find relevant information to answer your question. Please try rephrasing your query or asking about a different topic."
                 generation_time = 0.0
             
+            # Step 6: Update session with conversation if session exists
+            if session:
+                await self._update_session_with_conversation(session, rag_query.query, answer, search_results)
+            
             total_time = (time.time() - start_time) * 1000
             
-            # Step 6: Create response
+            # Step 7: Create response
             response = RAGResponse(
                 query=rag_query.query,
                 answer=answer,
                 sources=search_results if rag_query.include_sources else [],
                 strategy_used=rag_query.strategy,
+                session_id=session.session_id if session else None,
+                message_count=len(session.messages) if session else 0,
+                context_strategy=context_window.window_type if context_window else None,
                 metadata={
                     'original_query': rag_query.query,
                     'rewritten_query': rewritten_query,
@@ -333,6 +430,8 @@ class RAGService:
                         r.source_type.value == 'wikipedia' for r in search_results
                     ),
                     'query_rewriting_enabled': True,
+                    'session_management_enabled': session is not None,
+                    'conversation_history_length': len(conversation_history),
                     'wikipedia_results_count': len([r for r in search_results if r.source_type.value == 'wikipedia']),
                     'primary_source': 'wikipedia' if any(r.source_type.value == 'wikipedia' for r in search_results) else 'documents'
                 },
@@ -494,7 +593,7 @@ class RAGService:
         top_k: int = 10
     ) -> RAGResponse:
         """
-        RAG query with conversation context
+        RAG query with optimized conversation context
         
         Args:
             query: Current user query
@@ -508,6 +607,20 @@ class RAGService:
         try:
             await self.initialize_services()
             
+            # Create a temporary session for context optimization
+            temp_session = ChatSession(
+                session_id="temp",
+                user_id="temp",
+                messages=conversation_history,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                expires_at=datetime.now() + timedelta(hours=1)
+            )
+            
+            # Get optimized context
+            context_window = await context_manager.get_optimized_context(temp_session, query)
+            optimized_history = context_window.messages
+            
             # Create RAG query
             rag_query = RAGQuery(
                 query=query,
@@ -518,12 +631,12 @@ class RAGService:
             # Retrieve documents
             search_results, retrieval_time = await self._retrieve_documents(rag_query)
             
-            # Generate response with conversation history
+            # Generate response with optimized conversation history
             if search_results:
                 answer, generation_time = await generation_service.generate_with_conversation_history(
                     query=query,
                     context_results=search_results[:rag_query.rerank_top_k],
-                    conversation_history=conversation_history,
+                    conversation_history=optimized_history,
                     temperature=rag_query.temperature,
                     max_tokens=rag_query.max_tokens
                 )
@@ -537,7 +650,10 @@ class RAGService:
                 sources=search_results[:rag_query.rerank_top_k],
                 strategy_used=strategy,
                 metadata={
-                    'conversation_length': len(conversation_history),
+                    'original_conversation_length': len(conversation_history),
+                    'optimized_conversation_length': len(optimized_history),
+                    'context_strategy': context_window.window_type,
+                    'context_tokens': context_window.token_count,
                     'total_sources_found': len(search_results)
                 },
                 retrieval_time_ms=retrieval_time,

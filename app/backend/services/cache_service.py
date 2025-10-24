@@ -153,10 +153,11 @@ class CacheService:
         return None
     
     # Session Caching (Alternative to in-memory sessions)
-    async def cache_session(self, session_id: str, session: ChatSession) -> bool:
-        """Cache chat session"""
+    async def cache_session(self, session_id: str, session: ChatSession, custom_ttl: Optional[int] = None) -> bool:
+        """Cache chat session with optional custom TTL"""
         key = self._create_key("session", session_id)
-        return await self.set(key, session.dict(), rag_config.session_cache_ttl)
+        ttl = custom_ttl or rag_config.session_cache_ttl
+        return await self.set(key, session.dict(), ttl)
     
     async def get_cached_session(self, session_id: str) -> Optional[ChatSession]:
         """Get cached session"""

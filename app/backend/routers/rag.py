@@ -22,6 +22,7 @@ from models.rag_models import (
 from services.rag_service import rag_service
 from services.reranking import reranking_service
 from services.session_service import session_service
+from services.context_manager import context_manager
 from config.rag_config import rag_config, SearchStrategies
 from services.cache_service import cache_service
 # endregion
@@ -45,13 +46,18 @@ async def rag_query(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Main RAG endpoint combining retrieval and generation
+    Enhanced RAG endpoint with automatic session management
     
     Performs document retrieval using the specified strategy,
     applies Wikipedia fallback if needed, and generates a response.
+    Automatically creates and manages sessions for multi-turn conversations.
     """
     logger.info(f"RAG query received: {query.query[:100]}...")
     try:
+        # Set user_id from current_user if not provided
+        if not query.user_id:
+            query.user_id = current_user.get("user_id", "anonymous")
+        
         response = await rag_service.query(query)
         return response
     except Exception as e:
@@ -553,4 +559,99 @@ def _get_strategy_components(config: Dict[str, bool]) -> List[str]:
     if config.get("use_rrf"):
         components.append("RRF Fusion")
     return components
+
+# Context Management Endpoints
+@router.get("/context/analytics/{session_id}")
+async def get_context_analytics(
+    session_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get context analytics for a session
+    
+    Returns analytics about conversation context, including:
+    - Message counts and lengths
+    - Token usage estimates
+    - Context strategy being used
+    - Session activity metrics
+    """
+    try:
+        # Get session
+        session = await session_service.get_session(session_id)
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {session_id} not found or expired"
+            )
+        
+        # Get context analytics
+        analytics = await context_manager.get_context_analytics(session)
+        
+        return {
+            "session_id": session_id,
+            "analytics": analytics,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Context analytics failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get context analytics: {str(e)}"
+        )
+
+@router.post("/context/optimize/{session_id}")
+async def optimize_session_context(
+    session_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Manually optimize context for a session
+    
+    This endpoint can be used to force context optimization
+    and see what the optimized context would look like.
+    """
+    try:
+        # Get session
+        session = await session_service.get_session(session_id)
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {session_id} not found or expired"
+            )
+        
+        # Get optimized context
+        context_window = await context_manager.get_optimized_context(session)
+        
+        return {
+            "session_id": session_id,
+            "context_window": {
+                "window_type": context_window.window_type,
+                "message_count": len(context_window.messages),
+                "token_count": context_window.token_count,
+                "has_summary": context_window.summary is not None,
+                "created_at": context_window.created_at.isoformat()
+            },
+            "messages": [
+                {
+                    "role": msg.role,
+                    "content": msg.content[:100] + "..." if len(msg.content) > 100 else msg.content,
+                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
+                }
+                for msg in context_window.messages
+            ],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Context optimization failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to optimize context: {str(e)}"
+        )
+
 # endregion
