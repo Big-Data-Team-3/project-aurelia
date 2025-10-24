@@ -35,18 +35,207 @@ st.markdown("""
         margin: 0.5rem 0;
         border-left: 3px solid #1f77b4;
     }
+    .quick-chat-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        margin: 2rem 0;
+    }
+    .chat-bubble-button .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        padding: 1.5rem 2rem;
+        font-size: 1rem;
+        font-weight: 500;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+        min-height: 120px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        white-space: pre-line;
+    }
+    .chat-bubble-button .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+    }
+    .chat-bubble-button .stButton > button:active {
+        transform: translateY(0px);
+    }
+    .quick-chat-title {
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .centered-subtitle {
+        text-align: center !important;
+        margin: 1rem 0;
+        width: 100%;
+        display: block;
+    }
+    .centered-subtitle h3 {
+        text-align: center !important;
+        margin: 0 auto;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 def main():
     # Header
     st.markdown('<h1 class="main-header">🤖 Project Aurelia RAG Chat</h1>', unsafe_allow_html=True)
-    st.markdown("### Ask questions about financial documents and get AI-powered answers")
+    st.markdown('<div class="centered-subtitle">Ask questions about financial documents and get AI-powered answers</div>', unsafe_allow_html=True)
+    
+    # Quick Chat Bubbles
+    show_quick_chat_bubbles()
     
     # Main RAG Chat Interface
     show_rag_chat()
 
-# Removed unused functions to keep the app simple and focused on RAG chat
+def show_quick_chat_bubbles():
+    """Display quick chat bubbles for common queries using cached API"""
+    
+    # Define the three quick chat options
+    quick_queries = [
+        {
+            "title": "What is Sharpe Ratio?",
+            "query": "What is Sharpe Ratio?",
+            "description": "Understand the Sharpe Ratio"
+        },
+        {
+            "title": "How to build a diversified investment portfolio?", 
+            "query": "How to build a diversified investment portfolio?",
+            "description": "Understand the diversification of an investment portfolio"
+        },
+        {
+            "title": "What are the different types of financial risks?",
+            "query": "What are the different types of financial risks?",
+            "description": "Understand the different types of financial risks"
+        }
+    ]
+    
+    # Add title for quick chat section
+    st.markdown('<div class="quick-chat-title">', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Create three columns for the bubbles
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col1:
+        st.markdown('<div class="chat-bubble-button">', unsafe_allow_html=True)
+        if st.button(
+            f"**{quick_queries[0]['title']}**\n\n{quick_queries[0]['description']}",
+            key="quick_1",
+            help="Click to ask about financial ratios",
+            use_container_width=True
+        ):
+            # Process the query using cached API
+            process_quick_query(quick_queries[0]['query'], quick_queries[0]['title'])
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown('<div class="chat-bubble-button">', unsafe_allow_html=True)
+        if st.button(
+            f"**{quick_queries[1]['title']}**\n\n{quick_queries[1]['description']}",
+            key="quick_2", 
+            help="Click to ask about portfolio management",
+            use_container_width=True
+        ):
+            # Process the query using cached API
+            process_quick_query(quick_queries[1]['query'], quick_queries[1]['title'])
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown('<div class="chat-bubble-button">', unsafe_allow_html=True)
+        if st.button(
+            f"**{quick_queries[2]['title']}**\n\n{quick_queries[2]['description']}",
+            key="quick_3",
+            help="Click to ask about risk analysis", 
+            use_container_width=True
+        ):
+            # Process the query using cached API
+            process_quick_query(quick_queries[2]['query'], quick_queries[2]['title'])
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Add separator
+    st.markdown("---")
+
+def process_quick_query(query: str, title: str):
+    """Process a quick query using the cached API"""
+    
+    # Get API base URL from session state or use default
+    api_base_url = "http://localhost:8000"  # Default value
+    
+    # Create a placeholder for the response
+    with st.spinner(f"🔍 Getting cached response for {title}..."):
+        try:
+            # Call the cached API endpoint
+            response = call_cached_rag_api(query, api_base_url)
+            
+            if response and "answer" in response:
+                # Show the response in an expandable section
+                with st.expander(f"💡 {title} - Cached Response", expanded=True):
+                    st.write(response["answer"])
+                    
+                    # Show cache performance info
+                    metadata = response.get("metadata", {})
+                    if metadata.get("cache_hit"):
+                        st.success(f"⚡ **Cache HIT!** {metadata.get('cache_performance', '')}")
+                        st.caption(f"📅 Cached at: {metadata.get('cached_at', 'Unknown')}")
+                    else:
+                        st.info(f"💾 **Cache MISS** - Response cached for future use")
+                        st.caption(f"⏱️ Processing time: {metadata.get('processing_time_ms', 0):.0f}ms")
+                    
+                    # Show sources if available
+                    if response.get("sources") and len(response["sources"]) > 0:
+                        st.markdown("**📚 Sources:**")
+                        for i, source in enumerate(response["sources"][:3], 1):  # Show top 3 sources
+                            source_type = source.get('source_type', 'document')
+                            icon = "🌐" if source_type == 'wikipedia' else "📄"
+                            st.caption(f"{icon} {source.get('title', 'Unknown')} (Score: {source.get('score', 0):.2f})")
+            else:
+                st.error("❌ Could not get response from cached API")
+                
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+
+def call_cached_rag_api(query: str, api_base_url: str) -> Dict[str, Any]:
+    """Call the cached RAG API endpoint"""
+    try:
+        url = f"{api_base_url}/rag/query/cached"
+        
+        payload = {
+            "query": query,
+            "strategy": "rrf_fusion",
+            "top_k": 10,
+            "rerank_top_k": 5,
+            "include_sources": True,
+            "enable_wikipedia_fallback": True,
+            "temperature": 0.1,
+            "max_tokens": 1000,
+            "user_id": "streamlit_user"
+        }
+        
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        
+        return response.json()
+        
+    except requests.exceptions.ConnectionError:
+        st.error("🔌 Cannot connect to backend. Make sure it's running on the configured URL.")
+        return None
+    except requests.exceptions.Timeout:
+        st.error("⏰ Request timed out. The backend might be overloaded.")
+        return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ API request failed: {str(e)}")
+        return None
+    except Exception as e:
+        st.error(f"❌ Unexpected error: {str(e)}")
+        return None
 
 def show_rag_chat():
     """Simple RAG Chat Interface"""
@@ -112,6 +301,20 @@ def show_rag_chat():
         else:
             st.info("🆕 No active session")
             st.caption("A new session will be created with your first query")
+        
+        # Cache Statistics
+        st.markdown("---")
+        st.subheader("📊 Cache Performance")
+        if st.button("📈 View Cache Stats"):
+            with st.spinner("Loading cache statistics..."):
+                cache_stats = get_cache_stats(api_base_url)
+                if cache_stats:
+                    stats = cache_stats.get('cache_stats', {})
+                    st.metric("Cached Responses", stats.get('total_cached_responses', 0))
+                    st.metric("Avg Processing Time", f"{stats.get('average_processing_time_ms', 0):.0f}ms")
+                    st.caption(f"💾 {stats.get('cache_hit_potential', 'No cached queries')}")
+                else:
+                    st.error("❌ Could not load cache stats")
         
         # System status
         st.markdown("---")
@@ -341,6 +544,16 @@ def call_rag_api(query: str, config: Dict[str, Any]) -> Dict[str, Any]:
         st.error(f"❌ Unexpected error: {str(e)}")
         return None
 
+
+def get_cache_stats(api_base_url: str) -> Dict[str, Any]:
+    """Get cache statistics"""
+    try:
+        url = f"{api_base_url}/rag/cache/stats"
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except Exception:
+        return None
 
 def check_rag_health(api_base_url: str) -> Dict[str, Any]:
     """Check RAG system health"""

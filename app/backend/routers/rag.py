@@ -4,6 +4,8 @@ FastAPI router for RAG functionality
 """
 # region Imports
 import asyncio
+from datetime import datetime
+import time
 from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -23,6 +25,7 @@ from services.rag_service import rag_service
 from services.reranking import reranking_service
 from services.session_service import session_service
 from services.context_manager import context_manager
+from services.query_cache_service import query_cache_service
 from config.rag_config import rag_config, SearchStrategies
 from services.cache_service import cache_service
 # endregion
@@ -65,6 +68,101 @@ async def rag_query(
         raise HTTPException(
             status_code=500,
             detail=f"RAG query failed: {str(e)}"
+        )
+
+# Cached RAG query endpoint
+@router.post("/query/cached", response_model=RAGResponse)
+async def cached_rag_query(
+    query: RAGQuery,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Cached RAG endpoint with instant responses for repeated queries
+    
+    This endpoint provides the same functionality as the standard /query endpoint,
+    but with intelligent caching for performance optimization:
+    
+    1. First time: Processes query normally and caches the response
+    2. Subsequent times: Returns cached response instantly with performance comparison
+    
+    Features:
+    - Instant responses for cached queries
+    - Performance metrics showing speedup over standard processing
+    - Automatic cache management with TTL
+    - Cache statistics and analytics
+    """
+    logger.info(f"Cached RAG query received: {query.query[:100]}...")
+    start_time = time.time()
+    
+    try:
+        # Set user_id from current_user if not provided
+        if not query.user_id:
+            query.user_id = current_user.get("user_id", "anonymous")
+        
+        # Step 1: Check for cached response
+        cached_result = await query_cache_service.get_cached_response(query)
+        
+        if cached_result:
+            # Cache HIT - Return cached response with performance comparison
+            cached_response, perf_data = cached_result
+            
+            # Calculate current response time (should be very fast)
+            current_time_ms = (time.time() - start_time) * 1000
+            original_time_ms = perf_data.get('processing_time_ms', 0)
+            
+            # Calculate speedup
+            speedup = original_time_ms / current_time_ms if current_time_ms > 0 else 0
+            
+            # Update response with cache information
+            cached_response.metadata.update({
+                'cache_hit': True,
+                'cached_at': perf_data.get('cached_at'),
+                'original_processing_time_ms': original_time_ms,
+                'cached_response_time_ms': current_time_ms,
+                'speedup_factor': round(speedup, 2),
+                'cache_performance': f"{speedup:.1f}x faster than original",
+                'cache_key': f"query_cache:{hash(query.query + str(query.strategy) + str(query.top_k))}"
+            })
+            
+            # Update timing information
+            cached_response.retrieval_time_ms = 0.0  # No retrieval for cached response
+            cached_response.generation_time_ms = 0.0  # No generation for cached response
+            cached_response.total_time_ms = current_time_ms
+            
+            logger.info(f"Cache HIT: {query.query[:50]}... (Speedup: {speedup:.1f}x)")
+            return cached_response
+        
+        else:
+            # Cache MISS - Process query normally and cache the result
+            logger.info(f"Cache MISS: {query.query[:50]}... - Processing normally")
+            
+            # Process query using standard RAG service
+            response = await rag_service.query(query)
+            
+            # Calculate processing time
+            processing_time_ms = (time.time() - start_time) * 1000
+            
+            # Cache the response for future use
+            cache_success = await query_cache_service.cache_response(
+                query, response, processing_time_ms
+            )
+            
+            # Add cache information to response
+            response.metadata.update({
+                'cache_hit': False,
+                'cache_stored': cache_success,
+                'processing_time_ms': processing_time_ms,
+                'cache_note': 'Response cached for future instant retrieval'
+            })
+            
+            logger.info(f"Cache MISS processed and cached: {query.query[:50]}... ({processing_time_ms:.2f}ms)")
+            return response
+            
+    except Exception as e:
+        logger.error(f"Cached RAG query failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Cached RAG query failed: {str(e)}"
         )
 
 # Streaming RAG query endpoint
@@ -370,6 +468,90 @@ async def cache_health_check():
             "cache_enabled": rag_config.enable_caching,
             "redis_healthy": False,
             "error": str(e)
+        }
+
+# Query cache management endpoints
+@router.get("/cache/stats")
+async def get_cache_stats():
+    """Get query cache statistics and performance metrics"""
+    try:
+        stats = await query_cache_service.get_cache_stats()
+        return {
+            "status": "success",
+            "cache_stats": stats,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"Failed to get cache stats: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get cache stats: {str(e)}"
+        )
+
+@router.delete("/cache/clear")
+async def clear_query_cache(
+    query_pattern: str = Query(None, description="Optional pattern to match specific queries")
+):
+    """Clear query cache entries"""
+    try:
+        success = await query_cache_service.clear_cache(query_pattern)
+        
+        if success:
+            message = f"Cache cleared successfully"
+            if query_pattern:
+                message += f" for queries matching: {query_pattern}"
+            
+            return {
+                "status": "success",
+                "message": message,
+                "timestamp": time.time()
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to clear cache"
+            )
+            
+    except Exception as e:
+        logger.error(f"Failed to clear cache: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear cache: {str(e)}"
+        )
+
+@router.get("/cache/health/detailed")
+async def detailed_cache_health():
+    """Detailed cache health check including query cache"""
+    try:
+        # Basic cache health
+        basic_health = await cache_service.health_check()
+        
+        # Query cache health
+        query_cache_health = await query_cache_service.health_check()
+        
+        # Cache stats
+        cache_stats = await query_cache_service.get_cache_stats()
+        
+        return {
+            "overall_healthy": basic_health and query_cache_health,
+            "basic_cache": {
+                "enabled": rag_config.enable_caching,
+                "redis_healthy": basic_health,
+                "redis_url": rag_config.redis_url.split('@')[-1] if '@' in rag_config.redis_url else rag_config.redis_url
+            },
+            "query_cache": {
+                "healthy": query_cache_health,
+                "stats": cache_stats
+            },
+            "timestamp": time.time()
+        }
+        
+    except Exception as e:
+        logger.error(f"Detailed cache health check failed: {e}")
+        return {
+            "overall_healthy": False,
+            "error": str(e),
+            "timestamp": time.time()
         }
 
 # Create a new chat session for persistent conversation
