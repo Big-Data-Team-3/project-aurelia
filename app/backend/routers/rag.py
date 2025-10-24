@@ -49,20 +49,68 @@ async def rag_query(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Enhanced RAG endpoint with automatic session management
+    Enhanced RAG endpoint with automatic session management and cache checking
     
     Performs document retrieval using the specified strategy,
     applies Wikipedia fallback if needed, and generates a response.
     Automatically creates and manages sessions for multi-turn conversations.
+    
+    Cache Behavior:
+    1. First checks for cached response
+    2. If cache hit: Returns cached response instantly
+    3. If cache miss: Processes query normally and caches the result
     """
     logger.info(f"RAG query received: {query.query[:100]}...")
+    start_time = time.time()
+    
     try:
         # Set user_id from current_user if not provided
+        #Strip whitespaces from query
+        query.query = query.query.strip()
         if not query.user_id:
             query.user_id = current_user.get("user_id", "anonymous")
         
+        # Step 1: Check for cached response first
+        cached_result = await query_cache_service.get_cached_response(query)
+        if cached_result:
+            cached_response, perf_data = cached_result
+            processing_time = time.time() - start_time
+            
+            # Add cache performance metadata
+            cached_response.metadata = cached_response.metadata or {}
+            cached_response.metadata.update({
+                'cache_hit': True,
+                'cache_retrieval_time_ms': round(processing_time * 1000, 2),
+                'original_processing_time_ms': perf_data.get('processing_time_ms', 0),
+                'cache_speedup': f"{perf_data.get('processing_time_ms', 0) / (processing_time * 1000):.1f}x faster" if processing_time > 0 else "instant",
+                'cached_at': perf_data.get('cached_at', 'unknown')
+            })
+            
+            logger.info(f"Cache HIT for query: {query.query[:50]}... (retrieved in {processing_time*1000:.2f}ms)")
+            return cached_response
+        
+        # Step 2: Cache miss - process query normally
+        logger.info(f"Cache MISS for query: {query.query[:50]}... - processing normally")
         response = await rag_service.query(query)
+        
+        # Step 3: Cache the response for future use
+        processing_time = time.time() - start_time
+        await query_cache_service.cache_response(
+            query, 
+            response, 
+            processing_time * 1000  # Convert to milliseconds
+        )
+        
+        # Add cache miss metadata
+        response.metadata = response.metadata or {}
+        response.metadata.update({
+            'cache_hit': False,
+            'processing_time_ms': round(processing_time * 1000, 2),
+            'cached_for_future': True
+        })
+        
         return response
+        
     except Exception as e:
         logger.error(f"RAG query failed: {e}")
         raise HTTPException(

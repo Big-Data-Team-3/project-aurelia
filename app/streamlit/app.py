@@ -164,43 +164,53 @@ def show_quick_chat_bubbles():
     st.markdown("---")
 
 def process_quick_query(query: str, title: str):
-    """Process a quick query using the cached API"""
+    """Process a quick query using the cached API and add it to chat history"""
+    
+    # Add the query as a user message to chat history
+    st.session_state.messages.append({"role": "user", "content": query})
     
     # Get API base URL from session state or use default
     api_base_url = "http://localhost:8000"  # Default value
     
-    # Create a placeholder for the response
-    with st.spinner(f"🔍 Getting cached response for {title}..."):
-        try:
-            # Call the cached API endpoint
-            response = call_cached_rag_api(query, api_base_url)
+    # Process the query using cached API (invisible to user)
+    try:
+        # Call the cached API endpoint
+        response = call_cached_rag_api(query, api_base_url)
+        
+        if response and "answer" in response:
+            # Add the response as an assistant message to chat history
+            assistant_msg = {
+                "role": "assistant",
+                "content": response["answer"],
+                "sources": response.get("sources", []),
+                "metadata": response.get("metadata", {})  # Store metadata for internal use
+            }
+            st.session_state.messages.append(assistant_msg)
             
-            if response and "answer" in response:
-                # Show the response in an expandable section
-                with st.expander(f"💡 {title} - Cached Response", expanded=True):
-                    st.write(response["answer"])
-                    
-                    # Show cache performance info
-                    metadata = response.get("metadata", {})
-                    if metadata.get("cache_hit"):
-                        st.success(f"⚡ **Cache HIT!** {metadata.get('cache_performance', '')}")
-                        st.caption(f"📅 Cached at: {metadata.get('cached_at', 'Unknown')}")
-                    else:
-                        st.info(f"💾 **Cache MISS** - Response cached for future use")
-                        st.caption(f"⏱️ Processing time: {metadata.get('processing_time_ms', 0):.0f}ms")
-                    
-                    # Show sources if available
-                    if response.get("sources") and len(response["sources"]) > 0:
-                        st.markdown("**📚 Sources:**")
-                        for i, source in enumerate(response["sources"][:3], 1):  # Show top 3 sources
-                            source_type = source.get('source_type', 'document')
-                            icon = "🌐" if source_type == 'wikipedia' else "📄"
-                            st.caption(f"{icon} {source.get('title', 'Unknown')} (Score: {source.get('score', 0):.2f})")
-            else:
-                st.error("❌ Could not get response from cached API")
-                
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+            # Store session_id if provided
+            if "session_id" in response and response["session_id"]:
+                if hasattr(st.session_state, "session_id"):
+                    st.session_state.session_id = response["session_id"]
+            
+            # Force a rerun to show the new messages
+            st.rerun()
+        else:
+            # Add error message to chat history
+            error_msg = "❌ Sorry, I couldn't generate a response. Please check if the backend is running."
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": error_msg
+            })
+            st.rerun()
+            
+    except Exception as e:
+        # Add error message to chat history
+        error_msg = f"❌ Error: {str(e)}"
+        st.session_state.messages.append({
+            "role": "assistant", 
+            "content": error_msg
+        })
+        st.rerun()
 
 def call_cached_rag_api(query: str, api_base_url: str) -> Dict[str, Any]:
     """Call the cached RAG API endpoint"""
@@ -346,6 +356,16 @@ def show_rag_chat():
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.write(message["content"])
+            
+            # Show subtle cache performance info for assistant messages
+            if (message["role"] == "assistant" and 
+                "metadata" in message and 
+                message["metadata"]):
+                metadata = message["metadata"]
+                if metadata.get("cache_hit"):
+                    st.caption(f"⚡ Cached response ({metadata.get('speedup_factor', 0):.0f}x faster)")
+                elif metadata.get("cache_stored"):
+                    st.caption("💾 Response cached for future use")
             
             # Show sources for assistant messages
             if (message["role"] == "assistant" and 

@@ -119,7 +119,7 @@ class QueryCacheService:
                 'top_k': rag_query.top_k,
                 'processing_time_ms': processing_time_ms,
                 'cached_at': datetime.now().isoformat(),
-                'response_size': len(json.dumps(response_data)),
+                'response_size': len(str(response_data).encode('utf-8')),
                 'sources_count': len(response.sources) if response.sources else 0,
                 'query_type': response.metadata.get('query_classification', 'unknown'),
                 'wikipedia_fallback_used': response.metadata.get('wikipedia_fallback_used', False)

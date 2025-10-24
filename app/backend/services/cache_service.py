@@ -152,6 +152,31 @@ class CacheService:
             return [SearchResult(**result) for result in results_data]
         return None
     
+    async def get_all_keys(self, pattern: str) -> List[str]:
+        """Get all keys matching a pattern"""
+        if not self.redis_client:
+            return []
+        
+        try:
+            # Use the cache prefix from config
+            full_pattern = f"{rag_config.cache_prefix}:{pattern}*"
+            keys = self.redis_client.keys(full_pattern)
+            
+            # Decode keys and remove the cache prefix
+            decoded_keys = []
+            for key in keys:
+                if isinstance(key, bytes):
+                    key = key.decode('utf-8')
+                # Remove the cache prefix to return clean keys
+                if key.startswith(f"{rag_config.cache_prefix}:"):
+                    key = key[len(f"{rag_config.cache_prefix}:"):]
+                decoded_keys.append(key)
+            
+            return decoded_keys
+        except Exception as e:
+            logger.error(f"Error getting keys for pattern {pattern}: {e}")
+            return []
+    
     # Session Caching (Alternative to in-memory sessions)
     async def cache_session(self, session_id: str, session: ChatSession, custom_ttl: Optional[int] = None) -> bool:
         """Cache chat session with optional custom TTL"""
