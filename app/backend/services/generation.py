@@ -112,7 +112,7 @@ class GenerationService:
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             raise
-    
+    # region conversation history generation
     async def generate_with_conversation_history(
         self,
         query: str,
@@ -197,7 +197,8 @@ class GenerationService:
             logger.error(f"Generation with conversation history failed: {e}")
             generation_time = (time.time() - start_time) * 1000
             return "I apologize, but I'm having trouble generating a response right now. Please try again.", generation_time
-
+    # endregion conversation history generation
+    # region streaming response generation
     async def generate_streaming_response(
         self,
         query: str,
@@ -254,7 +255,76 @@ class GenerationService:
         except Exception as e:
             logger.error(f"Streaming generation failed: {e}")
             yield f"Error generating response: {str(e)}"
-    
+    # endregion streaming response generation
+    # region external query generation
+    async def generate_external_response(
+        self,
+        query: str,
+        conversation_history: List[ChatMessage],
+        temperature: float = None,
+        max_tokens: int = None
+    ) -> tuple[str, float]:
+        """Generate response for external queries using conversation context only"""
+        start_time = time.time()
+        
+        try:
+            temp = temperature if temperature is not None else self.config.temperature
+            max_tok = max_tokens if max_tokens is not None else self.config.max_tokens
+            
+            # Build conversation context
+            conversation_context = ""
+            if conversation_history:
+                recent_messages = conversation_history[-5:]
+                context_parts = []
+                for msg in recent_messages:
+                    if hasattr(msg, 'role'):
+                        role, content = msg.role, msg.content
+                    else:
+                        role, content = msg.get('role', 'user'), msg.get('content', '')
+                    context_parts.append(f"{role.title()}: {content}")
+                conversation_context = "\n".join(context_parts)
+            
+            # Specialized system prompt for external queries
+            system_prompt = f"""You are a helpful financial assistant. For this query, you should:
+
+    1. Use ONLY the conversation history provided below
+    2. Do NOT reference any external documents or sources
+    3. Answer based on what has been discussed in the conversation
+    4. Be friendly and conversational
+    5. If the user is sharing personal information, acknowledge it appropriately
+    6. If the user is greeting you, respond warmly
+    7. If the user is asking about something not in the conversation, politely redirect to financial topics
+
+    Recent conversation:
+    {conversation_context}
+
+    Remember: Only use information from the conversation history above."""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query}
+            ]
+            
+            response = self.client.chat.completions.create(
+                model=self.config.generation_model,
+                messages=messages,
+                temperature=temp,
+                max_tokens=max_tok,
+                stream=False
+            )
+            
+            answer = response.choices[0].message.content.strip()
+            generation_time = (time.time() - start_time) * 1000
+            
+            logger.info(f"External response generated in {generation_time:.2f}ms")
+            return answer, generation_time
+            
+        except Exception as e:
+            logger.error(f"External response generation failed: {e}")
+            generation_time = (time.time() - start_time) * 1000
+            return f"I apologize, but I'm having trouble generating a response right now. Please try again.", generation_time
+    # endregion external query generation
+
     async def generate_response_with_conversation_history(
         self,
         query: str,

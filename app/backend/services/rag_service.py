@@ -8,6 +8,7 @@ import asyncio
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from datetime import datetime, timedelta
 import logging
+import re
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -29,6 +30,7 @@ from services.chatgpt_service import chatgpt_service
 from services.session_service import session_service
 from services.query_rewriter import query_rewriter
 from services.context_manager import context_manager
+from services.query_classifier import query_classifier, QueryType
 
 
 logger = logging.getLogger(__name__)
@@ -311,13 +313,7 @@ class RAGService:
 
     async def query(self, rag_query: RAGQuery) -> RAGResponse:
         """
-        Enhanced RAG query method with session management, query rewriting and Wikipedia fallback
-        
-        Args:
-            rag_query: RAG query parameters with optional session management
-            
-        Returns:
-            Complete RAG response with answer, sources, and session information
+        Enhanced RAG query method with intelligent query classification and routing
         """
         start_time = time.time()
         
@@ -329,123 +325,43 @@ class RAGService:
             # Step 1: Handle session management
             session = await self._handle_session_management(rag_query)
             
-            # Step 2: Get optimized context if session exists
-            context_window = None
+            # Step 2: Get conversation history if session exists
             conversation_history = []
             if session:
                 context_window = await context_manager.get_optimized_context(session, rag_query.query)
                 conversation_history = context_window.messages
                 logger.info(f"Using session {session.session_id} with {len(conversation_history)} context messages")
             
-            # Step 3: Rewrite query for better retrieval
-            rewritten_query = await query_rewriter.rewrite_query(rag_query.query)
+            # Step 3: Classify query type
+            query_type = await query_classifier.classify_query(rag_query.query, conversation_history)
+            logger.info(f"Query classified as: {query_type.value}")
             
-            # Step 2: Retrieve documents using rewritten query
-            # Create a new RAG query with the rewritten query for retrieval
-            retrieval_query = RAGQuery(
-                query=rewritten_query,  # Use rewritten query for retrieval
-                strategy=rag_query.strategy,
-                top_k=rag_query.top_k,
-                rerank_top_k=rag_query.rerank_top_k,
-                include_sources=rag_query.include_sources,
-                enable_wikipedia_fallback=rag_query.enable_wikipedia_fallback,
-                temperature=rag_query.temperature,
-                max_tokens=rag_query.max_tokens
-            )
-            search_results, retrieval_time = await self._retrieve_documents(retrieval_query)
+            # Step 4: Route to appropriate handler
+            if query_type == QueryType.EXTERNAL:
+                response = await self._handle_external_query(rag_query, conversation_history)
+            elif query_type == QueryType.CONTEXT_DEPENDENT:
+                response = await self._handle_context_dependent_query(rag_query, conversation_history)
+            else:  # DOCUMENT_BASED
+                response = await self._handle_document_based_query(rag_query, conversation_history)
             
-            # Step 3: Check confidence and apply Wikipedia fallback if needed
-            confidence_threshold = 0.5
-            avg_confidence = sum(result.score for result in search_results) / len(search_results) if search_results else 0.0
-            
-            if (rag_query.enable_wikipedia_fallback and 
-                (len(search_results) < rag_query.rerank_top_k or avg_confidence < confidence_threshold)):
-                # When Wikipedia fallback is enabled and the results are insufficient, the query's sources need to change at the frontend!
-                # This is because the Wikipedia fallback results are not part of the search results, so we need to add them to the search results.
-                logger.info(f"Applying Wikipedia fallback because of insufficient results with avg confidence of {avg_confidence:.2f}")
-                wiki_results, wiki_time = await self._apply_wikipedia_fallback(
-                    rag_query.query
-                )
-                print(f"-----------------")
-                print(f"Wikipedia fallback results: {wiki_results}")
-                print(f"-----------------")
-                search_results = wiki_results
-                retrieval_time += wiki_time
-            
-            # Step 4: Remove duplicates and limit results
-            seen_ids = set()
-            unique_results = []
-            for result in search_results:
-                if result.id not in seen_ids:
-                    unique_results.append(result)
-                    seen_ids.add(result.id)
-            
-            search_results = unique_results[:rag_query.rerank_top_k]
-            
-            # Step 5: Generate response with conversation history if available
-            if search_results:
-                if conversation_history:
-                    # Use conversation-aware generation
-                    answer, generation_time = await generation_service.generate_with_conversation_history(
-                        query=rag_query.query,
-                        context_results=search_results,
-                        conversation_history=conversation_history,
-                        temperature=rag_query.temperature,
-                        max_tokens=rag_query.max_tokens
-                    )
-                else:
-                    # Use standard generation
-                    answer, generation_time = await generation_service.generate_response(
-                        query=rag_query.query,
-                        context_results=search_results,
-                        temperature=rag_query.temperature,
-                        max_tokens=rag_query.max_tokens
-                    )
-            else:
-                answer = "I couldn't find relevant information to answer your question. Please try rephrasing your query or asking about a different topic."
-                generation_time = 0.0
-            
-            # Step 6: Update session with conversation if session exists
+            # Step 5: Update session with conversation if session exists
             if session:
-                await self._update_session_with_conversation(session, rag_query.query, answer, search_results)
+                await self._update_session_with_conversation(session, rag_query.query, response.answer, response.sources)
+                response.session_id = session.session_id
+                response.message_count = len(session.messages)
+            
+            # Step 6: Add classification info to metadata
+            response.metadata['query_classification'] = query_type.value
+            response.metadata['classification_reason'] = query_classifier.get_classification_reason(rag_query.query, query_type)
             
             total_time = (time.time() - start_time) * 1000
+            response.total_time_ms = total_time
             
-            # Step 7: Create response
-            response = RAGResponse(
-                query=rag_query.query,
-                answer=answer,
-                sources=search_results if rag_query.include_sources else [],
-                strategy_used=rag_query.strategy,
-                session_id=session.session_id if session else None,
-                message_count=len(session.messages) if session else 0,
-                context_strategy=context_window.window_type if context_window else None,
-                metadata={
-                    'original_query': rag_query.query,
-                    'rewritten_query': rewritten_query,
-                    'total_sources_found': len(search_results),
-                    'sources_used_for_generation': len(search_results),
-                    'average_confidence': avg_confidence,
-                    'wikipedia_fallback_used': any(
-                        r.source_type.value == 'wikipedia' for r in search_results
-                    ),
-                    'query_rewriting_enabled': True,
-                    'session_management_enabled': session is not None,
-                    'conversation_history_length': len(conversation_history),
-                    'wikipedia_results_count': len([r for r in search_results if r.source_type.value == 'wikipedia']),
-                    'primary_source': 'wikipedia' if any(r.source_type.value == 'wikipedia' for r in search_results) else 'documents'
-                },
-                retrieval_time_ms=retrieval_time,
-                generation_time_ms=generation_time,
-                total_time_ms=total_time
-            )
-            
-            logger.info(f"RAG query completed in {total_time:.2f}ms with {len(search_results)} sources")
+            logger.info(f"RAG query completed in {total_time:.2f}ms with classification: {query_type.value}")
             return response
             
         except Exception as e:
             logger.error(f"RAG query failed: {e}")
-            # Return error response
             return RAGResponse(
                 query=rag_query.query,
                 answer=f"I encountered an error while processing your query: {str(e)}",
@@ -454,7 +370,7 @@ class RAGService:
                 metadata={'error': str(e)},
                 total_time_ms=(time.time() - start_time) * 1000
             )
-    
+            
     async def search_only(self, query: str, strategy: SearchStrategy, top_k: int = 10) -> SearchResponse:
         """
         Perform search without generation
@@ -781,6 +697,172 @@ class RAGService:
             logger.error(f"Wikipedia fallback failed: {e}")
             return [], 0.0
     
+
+    async def _handle_external_query(
+        self, 
+        rag_query: RAGQuery, 
+        conversation_history: List[ChatMessage]
+    ) -> RAGResponse:
+        """Handle external queries using conversation context only"""
+        try:
+            logger.info("Processing external query with conversation context only")
+            
+            # Use conversation-aware generation without document context
+            answer, generation_time = await generation_service.generate_with_conversation_history(
+                query=rag_query.query,
+                context_results=[],  # No document context
+                conversation_history=conversation_history,
+                temperature=rag_query.temperature,
+                max_tokens=rag_query.max_tokens
+            )
+            
+            # Create response with no sources
+            response = RAGResponse(
+                query=rag_query.query,
+                answer=answer,
+                sources=[],  # No sources for external queries
+                strategy_used=rag_query.strategy,
+                session_id=None,  # Will be set by caller
+                message_count=len(conversation_history),
+                context_strategy="external",
+                metadata={
+                    'query_type': 'external',
+                    'processing_method': 'conversation_context_only',
+                    'sources_used': 0,
+                    'document_search_performed': False,
+                    'wikipedia_fallback_used': False
+                },
+                retrieval_time_ms=0.0,  # No retrieval for external queries
+                generation_time_ms=generation_time,
+                total_time_ms=generation_time
+            )
+            
+            logger.info(f"External query processed in {generation_time:.2f}ms")
+            return response
+            
+        except Exception as e:
+            logger.error(f"External query processing failed: {e}")
+            return RAGResponse(
+                query=rag_query.query,
+                answer=f"I encountered an error while processing your query: {str(e)}",
+                sources=[],
+                strategy_used=rag_query.strategy,
+                metadata={'error': str(e), 'query_type': 'external'},
+                total_time_ms=0.0
+            )
+
+    async def _handle_context_dependent_query(
+        self, 
+        rag_query: RAGQuery, 
+        conversation_history: List[ChatMessage]
+    ) -> RAGResponse:
+        """Handle context-dependent queries with enhanced context"""
+        try:
+            logger.info("Processing context-dependent query with enhanced context")
+            
+            # Extract context from conversation history
+            context_enhanced_query = self._enhance_query_with_context(
+                rag_query.query, 
+                conversation_history
+            )
+            
+            # Create enhanced RAG query
+            enhanced_rag_query = RAGQuery(
+                query=context_enhanced_query,
+                strategy=rag_query.strategy,
+                top_k=rag_query.top_k,
+                rerank_top_k=rag_query.rerank_top_k,
+                include_sources=rag_query.include_sources,
+                enable_wikipedia_fallback=rag_query.enable_wikipedia_fallback,
+                temperature=rag_query.temperature,
+                max_tokens=rag_query.max_tokens
+            )
+            
+            # Retrieve documents with enhanced query
+            search_results, retrieval_time = await self._retrieve_documents(enhanced_rag_query)
+            
+            # Generate response with both document context and conversation history
+            if search_results:
+                answer, generation_time = await generation_service.generate_with_conversation_history(
+                    query=rag_query.query,  # Use original query for generation
+                    context_results=search_results,
+                    conversation_history=conversation_history,
+                    temperature=rag_query.temperature,
+                    max_tokens=rag_query.max_tokens
+                )
+            else:
+                answer = "I couldn't find relevant information to answer your question. Please try rephrasing your query or asking about a different topic."
+                generation_time = 0.0
+            
+            # Create response
+            response = RAGResponse(
+                query=rag_query.query,
+                answer=answer,
+                sources=search_results if rag_query.include_sources else [],
+                strategy_used=rag_query.strategy,
+                session_id=None,  # Will be set by caller
+                message_count=len(conversation_history),
+                context_strategy="context_enhanced",
+                metadata={
+                    'query_type': 'context_dependent',
+                    'original_query': rag_query.query,
+                    'enhanced_query': context_enhanced_query,
+                    'processing_method': 'enhanced_rag_with_context',
+                    'sources_used': len(search_results),
+                    'document_search_performed': True,
+                    'wikipedia_fallback_used': False
+                },
+                retrieval_time_ms=retrieval_time,
+                generation_time_ms=generation_time,
+                total_time_ms=retrieval_time + generation_time
+            )
+            
+            logger.info(f"Context-dependent query processed in {response.total_time_ms:.2f}ms")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Context-dependent query processing failed: {e}")
+            return RAGResponse(
+                query=rag_query.query,
+                answer=f"I encountered an error while processing your query: {str(e)}",
+                sources=[],
+                strategy_used=rag_query.strategy,
+                metadata={'error': str(e), 'query_type': 'context_dependent'},
+                total_time_ms=0.0
+            )
+
+    def _enhance_query_with_context(self, query: str, conversation_history: List[ChatMessage]) -> str:
+        """Enhance query with context from conversation history"""
+        try:
+            # Extract key terms from recent conversation
+            recent_messages = conversation_history[-5:]  # Last 5 messages
+            context_terms = []
+            
+            for msg in recent_messages:
+                if hasattr(msg, 'content'):
+                    content = msg.content
+                else:
+                    content = msg.get('content', '')
+                
+                # Extract financial terms, ratios, concepts
+                financial_terms = re.findall(r'\b[A-Z][a-z]+\s+(?:Ratio|Rate|Index|Model|Analysis|Risk|Return)\b', content)
+                context_terms.extend(financial_terms)
+            
+            # Remove duplicates and limit
+            context_terms = list(set(context_terms))[:3]
+            
+            # Enhance query
+            if context_terms:
+                enhanced_query = f"{query} {', '.join(context_terms)}"
+                logger.info(f"Enhanced query: '{query}' -> '{enhanced_query}'")
+                return enhanced_query
+            
+            return query
+            
+        except Exception as e:
+            logger.error(f"Query enhancement failed: {e}")
+            return query
+            
     async def health_check(self) -> Dict[str, bool]:
         """
         Comprehensive health check for all RAG services
@@ -821,6 +903,123 @@ class RAGService:
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return {'overall': False, 'error': str(e)}
+
+    async def _handle_document_based_query(
+        self, 
+        rag_query: RAGQuery, 
+        conversation_history: List[ChatMessage]
+    ) -> RAGResponse:
+        """Handle document-based queries with standard RAG + Wikipedia fallback"""
+        try:
+            logger.info("Processing document-based query with standard RAG pipeline")
+            
+            # Step 1: Rewrite query for better retrieval
+            rewritten_query = await query_rewriter.rewrite_query(rag_query.query)
+            
+            # Step 2: Create retrieval query with rewritten query
+            retrieval_query = RAGQuery(
+                query=rewritten_query,  # Use rewritten query for retrieval
+                strategy=rag_query.strategy,
+                top_k=rag_query.top_k,
+                rerank_top_k=rag_query.rerank_top_k,
+                include_sources=rag_query.include_sources,
+                enable_wikipedia_fallback=rag_query.enable_wikipedia_fallback,
+                temperature=rag_query.temperature,
+                max_tokens=rag_query.max_tokens
+            )
+            
+            # Step 3: Retrieve documents
+            search_results, retrieval_time = await self._retrieve_documents(retrieval_query)
+            
+            # Step 4: Check confidence and apply Wikipedia fallback if needed
+            confidence_threshold = 0.5
+            avg_confidence = sum(result.score for result in search_results) / len(search_results) if search_results else 0.0
+            
+            if (rag_query.enable_wikipedia_fallback and 
+                (len(search_results) < rag_query.rerank_top_k or avg_confidence < confidence_threshold)):
+                
+                logger.info(f"Applying Wikipedia fallback because of insufficient results with avg confidence of {avg_confidence:.2f}")
+                wiki_results, wiki_time = await self._apply_wikipedia_fallback(rewritten_query)
+                print(f"-----------------")
+                print(f"Wikipedia fallback results: {wiki_results}")
+                print(f"-----------------")
+                search_results = wiki_results
+                retrieval_time += wiki_time
+            
+            # Step 5: Remove duplicates and limit results
+            seen_ids = set()
+            unique_results = []
+            for result in search_results:
+                if result.id not in seen_ids:
+                    unique_results.append(result)
+                    seen_ids.add(result.id)
+            
+            search_results = unique_results[:rag_query.rerank_top_k]
+            
+            # Step 6: Generate response
+            if search_results:
+                if conversation_history:
+                    # Use conversation-aware generation
+                    answer, generation_time = await generation_service.generate_with_conversation_history(
+                        query=rag_query.query,
+                        context_results=search_results,
+                        conversation_history=conversation_history,
+                        temperature=rag_query.temperature,
+                        max_tokens=rag_query.max_tokens
+                    )
+                else:
+                    # Use standard generation
+                    answer, generation_time = await generation_service.generate_response(
+                        query=rag_query.query,
+                        context_results=search_results,
+                        temperature=rag_query.temperature,
+                        max_tokens=rag_query.max_tokens
+                    )
+            else:
+                answer = "I couldn't find relevant information to answer your question. Please try rephrasing your query or asking about a different topic."
+                generation_time = 0.0
+            
+            # Step 7: Create response
+            response = RAGResponse(
+                query=rag_query.query,
+                answer=answer,
+                sources=search_results if rag_query.include_sources else [],
+                strategy_used=rag_query.strategy,
+                session_id=None,  # Will be set by caller
+                message_count=len(conversation_history),
+                context_strategy="document_based",
+                metadata={
+                    'query_type': 'document_based',
+                    'original_query': rag_query.query,
+                    'rewritten_query': rewritten_query,
+                    'processing_method': 'standard_rag_with_wikipedia_fallback',
+                    'total_sources_found': len(search_results),
+                    'sources_used_for_generation': len(search_results),
+                    'average_confidence': avg_confidence,
+                    'wikipedia_fallback_used': any(
+                        r.source_type.value == 'wikipedia' for r in search_results
+                    ),
+                    'query_rewriting_enabled': True,
+                    'document_search_performed': True
+                },
+                retrieval_time_ms=retrieval_time,
+                generation_time_ms=generation_time,
+                total_time_ms=retrieval_time + generation_time
+            )
+            
+            logger.info(f"Document-based query processed in {response.total_time_ms:.2f}ms")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Document-based query processing failed: {e}")
+            return RAGResponse(
+                query=rag_query.query,
+                answer=f"I encountered an error while processing your query: {str(e)}",
+                sources=[],
+                strategy_used=rag_query.strategy,
+                metadata={'error': str(e), 'query_type': 'document_based'},
+                total_time_ms=0.0
+            )
 
 
 # Global instance
