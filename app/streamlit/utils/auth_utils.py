@@ -145,3 +145,29 @@ def is_logged_in():
 def get_user_info():
     """Get the user information"""
     return st.session_state.get("user", None)
+
+def validate_token_with_backend(token: str) -> dict:
+    """Validate token with FastAPI backend"""
+    try:
+        response = requests.post(
+            "http://localhost:8000/auth/validate-token",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except:
+        return None
+
+def store_token_in_backend(google_user_data: dict) -> str:
+    """Store user in backend and get auth token"""
+    try:
+        response = requests.post(
+            "http://localhost:8000/auth/google-login",
+            json={"google_token": "your_google_access_token"}
+        )
+        if response.status_code == 200:
+            return response.json()["auth_token"]
+        return None
+    except:
+        return None

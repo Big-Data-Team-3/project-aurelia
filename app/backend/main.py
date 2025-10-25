@@ -6,6 +6,8 @@ import uvicorn
 
 # Import RAG router
 from routers.rag import router as rag_router
+# Import auth router
+from routers.auth import router as auth_router 
 # Import cache service
 from services.cache_service import cache_service
 # endregion
@@ -32,6 +34,9 @@ app.add_middleware(
 # region Include RAG router
 # Include RAG router
 app.include_router(rag_router)
+#region Include auth router
+app.include_router(auth_router)
+# endregion
 # endregion
 # region Application start time for uptime calculation
 # Application start time for uptime calculation
