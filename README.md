@@ -8,7 +8,7 @@ A sophisticated Retrieval-Augmented Generation (RAG) system built with FastAPI a
 
 - **Recording Link** : [Video Recording](https://drive.google.com/drive/folders/1ovXMpd7xj6oKaeUFmPXziRpBvTstffFq?usp=drive_link)
 
-
+- **Website Link**: [Frontend] (https://aurelia-frontend-445621378597.us-central1.run.app)
 ## 🌟 Features
 
 ### 🔍 Advanced Search & Retrieval
