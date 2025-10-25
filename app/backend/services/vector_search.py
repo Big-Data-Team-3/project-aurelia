@@ -26,11 +26,21 @@ class VectorSearchService:
         self.openai_client = None
         self.pinecone_client = None
         self.index = None
+        self._initialized = False
         self._initialize_clients()
     
     def _initialize_clients(self):
         """Initialize OpenAI and Pinecone clients"""
         try:
+            # Check if API keys are available
+            if not self.config.openai_api_key:
+                logger.warning("OpenAI API key not found - vector search will be disabled")
+                return
+                
+            if not self.config.pinecone_api_key:
+                logger.warning("Pinecone API key not found - vector search will be disabled")
+                return
+            
             # Initialize OpenAI client
             self.openai_client = OpenAI(api_key=self.config.openai_api_key)
             logger.info("OpenAI client initialized successfully")
@@ -40,12 +50,18 @@ class VectorSearchService:
             self.index = self.pinecone_client.Index(name=self.config.pinecone_index_name)
             logger.info(f"Pinecone client initialized for index: {self.config.pinecone_index_name}")
             
+            self._initialized = True
+            
         except Exception as e:
             logger.error(f"Failed to initialize clients: {e}")
-            raise
+            # Don't raise - allow service to start without vector search
+            self._initialized = False
     
     async def create_embedding(self, text: str) -> List[float]:
         """Create embedding for a single text using OpenAI"""
+        if not self._initialized or not self.openai_client:
+            raise RuntimeError("Vector search service not initialized - missing API keys")
+        
         try:
             response = self.openai_client.embeddings.create(
                 input=text,
@@ -58,6 +74,9 @@ class VectorSearchService:
     
     async def create_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """Create embeddings for multiple texts in batch"""
+        if not self._initialized or not self.openai_client:
+            raise RuntimeError("Vector search service not initialized - missing API keys")
+            
         try:
             response = self.openai_client.embeddings.create(
                 input=texts,
@@ -87,6 +106,10 @@ class VectorSearchService:
         Returns:
             Tuple of (search results, search time in ms)
         """
+        if not self._initialized or not self.index:
+            logger.warning("Vector search service not initialized - returning empty results")
+            return [], 0.0
+            
         start_time = time.time()
         
         try:
@@ -283,6 +306,10 @@ class VectorSearchService:
     
     async def health_check(self) -> bool:
         """Check if the vector search service is healthy"""
+        if not self._initialized:
+            logger.warning("Vector search service not initialized - health check failed")
+            return False
+            
         try:
             # Test embedding creation
             test_embedding = await self.create_embedding("test query")
@@ -301,5 +328,19 @@ class VectorSearchService:
             return False
 
 
-# Global instance
-vector_search_service = VectorSearchService()
+# Global instance - lazy initialization
+_vector_search_service = None
+
+def get_vector_search_service():
+    """Get or create the vector search service instance"""
+    global _vector_search_service
+    if _vector_search_service is None:
+        _vector_search_service = VectorSearchService()
+    return _vector_search_service
+
+# For backward compatibility - this will be replaced with lazy initialization
+class LazyVectorSearchService:
+    def __getattr__(self, name):
+        return getattr(get_vector_search_service(), name)
+
+vector_search_service = LazyVectorSearchService()

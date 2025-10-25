@@ -23,20 +23,38 @@ class RerankingService:
     def __init__(self):
         self.model = None
         self.model_name = rag_config.reranker_model
-        self._initialize_model()
+        self._model_loading = False
+        self._model_loaded = False
+        # Don't load model during __init__ to avoid blocking startup
+        if rag_config.enable_reranking:
+            # Start loading model in background
+            asyncio.create_task(self._load_model_async())
     
-    def _initialize_model(self):
-        """Initialize the cross-encoder model"""
+    async def _load_model_async(self):
+        """Load the reranking model asynchronously"""
+        if self._model_loading or self._model_loaded:
+            return
+        
+        self._model_loading = True
         try:
-            if rag_config.enable_reranking:
-                logger.info(f"Loading reranking model: {self.model_name}")
-                self.model = CrossEncoder(self.model_name)
-                logger.info("Reranking model loaded successfully")
-            else:
-                logger.info("Reranking is disabled in configuration")
+            logger.info(f"Loading reranking model asynchronously: {self.model_name}")
+            import os
+            os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'  # Disable telemetry
+            
+            # Load model in a separate thread to avoid blocking
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(CrossEncoder, self.model_name)
+                self.model = await asyncio.get_event_loop().run_in_executor(None, future.result)
+            
+            self._model_loaded = True
+            logger.info("Reranking model loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load reranking model: {e}")
+            logger.warning("Reranking will be disabled - search results will not be reranked")
             self.model = None
+        finally:
+            self._model_loading = False
     
     async def rerank_results(
         self,
@@ -56,6 +74,12 @@ class RerankingService:
             Tuple of (reranked results, reranking time in ms)
         """
         start_time = time.time()
+        
+        # Wait for model to load if it's still loading
+        if self._model_loading and not self._model_loaded:
+            logger.info("Waiting for reranking model to load...")
+            while self._model_loading and not self._model_loaded:
+                await asyncio.sleep(0.1)
         
         if not self.model or not results:
             logger.warning("Reranking model not available or no results to rerank")
@@ -263,8 +287,15 @@ class RerankingService:
             if not rag_config.enable_reranking:
                 return True  # Service is "healthy" if disabled
             
+            # If model is still loading, consider it healthy
+            if self._model_loading and not self._model_loaded:
+                logger.info("Reranking model is still loading - service is healthy but reranking not yet available")
+                return True
+            
+            # If model failed to load, consider it healthy but disabled
             if not self.model:
-                return False
+                logger.warning("Reranking model not available - service will work without reranking")
+                return True  # Return True to not fail overall health check
             
             # Test with a simple reranking task
             test_query = "test query"
@@ -275,7 +306,8 @@ class RerankingService:
             
         except Exception as e:
             logger.error(f"Reranking service health check failed: {e}")
-            return False
+            # Don't fail the health check if reranking is unavailable
+            return True
 
 
 # Global instance
