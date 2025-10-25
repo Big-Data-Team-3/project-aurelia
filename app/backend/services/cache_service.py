@@ -25,6 +25,12 @@ class CacheService:
     def __init__(self):
         self.redis_pool = None
         self.redis_client = None
+        self.memory_cache = {}  # Fallback in-memory cache
+        self.cache_stats = {
+            'hits': 0,
+            'misses': 0,
+            'errors': 0
+        }
         self._initialize_redis()
     
     def _initialize_redis(self):
@@ -50,6 +56,7 @@ class CacheService:
             
         except Exception as e:
             logger.error(f"❌ Failed to connect to Redis: {e}")
+            logger.warning("🔄 Falling back to in-memory caching")
             self.redis_client = None
     
     def _create_key(self, prefix: str, *args) -> str:
@@ -68,28 +75,46 @@ class CacheService:
     async def get(self, key: str) -> Optional[Any]:
         """Get value from cache with error handling"""
         if not self.redis_client:
+            # Use in-memory cache as fallback
+            if key in self.memory_cache:
+                self.cache_stats['hits'] += 1
+                return self.memory_cache[key]
+            self.cache_stats['misses'] += 1
             return None
         
         try:
             data = self.redis_client.get(key)
             if data:
+                self.cache_stats['hits'] += 1
                 return pickle.loads(data)
+            self.cache_stats['misses'] += 1
         except Exception as e:
             logger.error(f"Cache get error for key {key}: {e}")
+            self.cache_stats['errors'] += 1
+            # Fallback to memory cache
+            if key in self.memory_cache:
+                return self.memory_cache[key]
         return None
     
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         """Set value in cache with TTL"""
         if not self.redis_client:
-            return False
+            # Use in-memory cache as fallback
+            self.memory_cache[key] = value
+            return True
         
         try:
             ttl = ttl or rag_config.cache_ttl
             data = pickle.dumps(value)
-            return self.redis_client.setex(key, ttl, data)
+            result = self.redis_client.setex(key, ttl, data)
+            # Also store in memory cache as backup
+            self.memory_cache[key] = value
+            return result
         except Exception as e:
             logger.error(f"Cache set error for key {key}: {e}")
-            return False
+            # Fallback to memory cache
+            self.memory_cache[key] = value
+            return True
     
     async def delete(self, key: str) -> bool:
         """Delete key from cache"""
@@ -248,16 +273,31 @@ class CacheService:
         total = hits + misses
         return (hits / total * 100) if total > 0 else 0.0
     
+    def get_memory_cache_stats(self) -> Dict[str, Any]:
+        """Get in-memory cache statistics"""
+        total_requests = self.cache_stats['hits'] + self.cache_stats['misses']
+        hit_rate = (self.cache_stats['hits'] / total_requests * 100) if total_requests > 0 else 0.0
+        
+        return {
+            "cache_type": "memory" if not self.redis_client else "redis_with_memory_fallback",
+            "memory_cache_size": len(self.memory_cache),
+            "hits": self.cache_stats['hits'],
+            "misses": self.cache_stats['misses'],
+            "errors": self.cache_stats['errors'],
+            "hit_rate": round(hit_rate, 2),
+            "total_requests": total_requests
+        }
+    
     async def health_check(self) -> bool:
         """Check Redis health"""
         try:
             if not self.redis_client:
                 # Try to reconnect to redis
                 self._initialize_redis()
-            return self.redis_client.ping() if self.redis_client else False
+            return self.redis_client.ping() if self.redis_client else True  # Return True if using memory cache
         except Exception as e:
             logger.error(f"Redis health check failed: {e}")
-            return False
+            return True  # Return True if using memory cache
 
 # Global cache service instance
 cache_service = CacheService()

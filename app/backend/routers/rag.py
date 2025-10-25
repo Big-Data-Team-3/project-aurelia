@@ -241,10 +241,16 @@ async def health_check():
 async def get_cache_stats(current_user: dict = Depends(get_current_user)):
     """Get cache statistics and performance metrics"""
     try:
-        stats = await cache_service.get_cache_stats()
+        # Get Redis stats if available
+        redis_stats = await cache_service.get_cache_stats()
+        
+        # Get memory cache stats
+        memory_stats = cache_service.get_memory_cache_stats()
+        
         return {
             "cache_enabled": rag_config.enable_caching,
-            "redis_stats": stats,
+            "redis_stats": redis_stats,
+            "memory_cache_stats": memory_stats,
             "cache_config": {
                 "response_ttl": rag_config.response_cache_ttl,
                 "embedding_ttl": rag_config.embedding_cache_ttl,

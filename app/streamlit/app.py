@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import time
+import os
 from typing import Dict, Any, List
 
 # Configuration
@@ -174,7 +175,7 @@ def process_quick_query(query: str, title: str):
     st.session_state.messages.append({"role": "user", "content": query})
     
     # Get API base URL from session state or use default
-    api_base_url = "http://localhost:8000"  # Default value
+    api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
     
     # Process the query using cached API (invisible to user)
     try:
@@ -273,18 +274,13 @@ def show_rag_chat():
         
         # API endpoint
         api_base_url = st.text_input(
-            "API Base URL", 
-            value="http://localhost:8000",
-            help="FastAPI backend URL"
-        )
+        "API Base URL", 
+        value=os.getenv("API_BASE_URL", "http://localhost:8000"),
+        help="FastAPI backend URL"
+    )
         
         # Search strategy
-        search_strategy = st.selectbox(
-            "Search Strategy",
-            ["rrf_fusion", "hybrid", "vector_only", "reranked"],
-            index=0,
-            help="How to search documents"
-        )
+        search_strategy = "rrf_fusion"
         
         # Simple settings
         st.subheader("Settings")
@@ -316,19 +312,6 @@ def show_rag_chat():
             st.info("🆕 No active session")
             st.caption("A new session will be created with your first query")
         
-        # Cache Statistics
-        st.markdown("---")
-        st.subheader("📊 Cache Performance")
-        if st.button("📈 View Cache Stats"):
-            with st.spinner("Loading cache statistics..."):
-                cache_stats = get_cache_stats(api_base_url)
-                if cache_stats:
-                    stats = cache_stats.get('cache_stats', {})
-                    st.metric("Cached Responses", stats.get('total_cached_responses', 0))
-                    st.metric("Avg Processing Time", f"{stats.get('average_processing_time_ms', 0):.0f}ms")
-                    st.caption(f"💾 {stats.get('cache_hit_potential', 'No cached queries')}")
-                else:
-                    st.error("❌ Could not load cache stats")
         
         # System status
         st.markdown("---")
