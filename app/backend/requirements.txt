@@ -14,13 +14,23 @@ python-multipart>=0.0.6
 
 # Environment & Configuration
 python-dotenv>=1.0.0
+pydantic-settings>=2.0.0
 
 # HTTP requests
 requests>=2.31.0
 
-# Optional: Redis for caching
+# Redis for caching
 redis>=5.0.0
 
-# Development dependencies (optional)
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
+# AI/ML Dependencies
+openai>=1.0.0
+pinecone>=7.3.0
+sentence-transformers>=2.2.0
+rank-bm25>=0.2.2
+instructor>=0.4.0
+
+# Wikipedia integration
+wikipedia>=1.4.0
+
+# Data processing
+numpy>=1.24.0
