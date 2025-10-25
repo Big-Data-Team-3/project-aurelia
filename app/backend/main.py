@@ -8,8 +8,12 @@ import uvicorn
 from routers.rag import router as rag_router
 # Import auth router
 from routers.auth import router as auth_router 
+# Import conversation router
+from routers.conversations import router as conversation_router
 # Import cache service
 from services.cache_service import cache_service
+# Import models to ensure they're registered
+import models
 # endregion
 
 # region Initialize FastAPI app
@@ -36,6 +40,9 @@ app.add_middleware(
 app.include_router(rag_router)
 #region Include auth router
 app.include_router(auth_router)
+# endregion
+#region Include conversation router
+app.include_router(conversation_router)
 # endregion
 # endregion
 # region Application start time for uptime calculation

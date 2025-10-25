@@ -57,6 +57,10 @@ class RAGQuery(BaseModel):
     user_id: Optional[str] = Field(None, description="User identifier for session management")
     create_session: bool = Field(True, description="Auto-create session if not provided")
     
+    # Additional fields for conversation persistence
+    conversation_id: Optional[int] = Field(None, description="Existing conversation ID for multi-turn conversations")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata for the query")
+    
     @validator('query')
     def validate_query(cls, v):
         if not v.strip():

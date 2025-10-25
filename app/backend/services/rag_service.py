@@ -329,12 +329,16 @@ class RAGService:
             # Step 1: Handle session management
             session = await self._handle_session_management(rag_query)
             
-            # Step 2: Get conversation history if session exists
+            # Step 2: Get conversation history from session or query metadata
             conversation_history = []
             if session:
                 context_window = await context_manager.get_optimized_context(session, rag_query.query)
                 conversation_history = context_window.messages
                 logger.info(f"Using session {session.session_id} with {len(conversation_history)} context messages")
+            elif rag_query.metadata and 'conversation_context' in rag_query.metadata:
+                # Use conversation context from query metadata
+                conversation_history = rag_query.metadata['conversation_context']
+                logger.info(f"Using conversation context from metadata with {len(conversation_history)} messages")
             
             # Step 3: Classify query type using Instructor with fallback
             try:

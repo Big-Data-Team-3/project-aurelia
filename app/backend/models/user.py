@@ -1,9 +1,10 @@
 # models/user.py
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
-Base = declarative_base()
+# Import the shared base
+from . import Base
 
 class User(Base):
     __tablename__ = "users"
@@ -17,6 +18,9 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime)
+    
+    # Relationships
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
 
 class AuthToken(Base):
     __tablename__ = "auth_tokens"

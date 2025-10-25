@@ -183,19 +183,19 @@ def process_quick_query(query: str, title: str):
         response = call_cached_rag_api(query, api_base_url)
         
         if response and "answer" in response:
+            # Store conversation_id from response
+            if "conversation_id" in response:
+                st.session_state.conversation_id = response["conversation_id"]
+            
             # Add the response as an assistant message to chat history
             assistant_msg = {
                 "role": "assistant",
                 "content": response["answer"],
                 "sources": response.get("sources", []),
-                "metadata": response.get("metadata", {})  # Store metadata for internal use
+                "metadata": response.get("metadata", {}),  # Store metadata for internal use
+                "conversation_id": response.get("conversation_id")
             }
             st.session_state.messages.append(assistant_msg)
-            
-            # Store session_id if provided
-            if "session_id" in response and response["session_id"]:
-                if hasattr(st.session_state, "session_id"):
-                    st.session_state.session_id = response["session_id"]
             
             # Force a rerun to show the new messages
             st.rerun()
@@ -222,6 +222,17 @@ def call_cached_rag_api(query: str, api_base_url: str) -> Dict[str, Any]:
     try:
         url = f"{api_base_url}/rag/query/cached"
         
+        # Get JWT token from session state
+        auth_token = st.session_state.get("auth_token")
+        if not auth_token:
+            st.error("❌ Authentication required. Please log in again.")
+            return None
+        
+        headers = {
+            "Authorization": f"Bearer {auth_token}",
+            "Content-Type": "application/json"
+        }
+        
         payload = {
             "query": query,
             "strategy": "rrf_fusion",
@@ -231,10 +242,10 @@ def call_cached_rag_api(query: str, api_base_url: str) -> Dict[str, Any]:
             "enable_wikipedia_fallback": True,
             "temperature": 0.1,
             "max_tokens": 1000,
-            "user_id": "streamlit_user"
+            "user_id": str(st.session_state.get("user_id", "anonymous"))
         }
         
-        response = requests.post(url, json=payload, timeout=FRONTEND_REQUEST_TIMEOUT)
+        response = requests.post(url, json=payload, headers=headers, timeout=FRONTEND_REQUEST_TIMEOUT)
         response.raise_for_status()
         
         return response.json()
@@ -256,10 +267,10 @@ def show_rag_chat():
     """Simple RAG Chat Interface"""
     
     # Initialize session state first (before any other code that might access it)
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = None
+    if "conversation_id" not in st.session_state:
+        st.session_state.conversation_id = None
     if "user_id" not in st.session_state:
-        st.session_state.user_id = "streamlit_user"
+        st.session_state.user_id = None  # Will be set from authentication
     if "messages" not in st.session_state:
         st.session_state.messages = []
         # Add welcome message
@@ -290,47 +301,50 @@ def show_rag_chat():
             temperature = st.slider("Creativity", 0.0, 1.0, 0.1, 0.1)
             max_tokens = st.slider("Max response length", 500, 2000, 1000, 100)
         # User Profile
-        # Session Management
         st.markdown("---")
-        st.subheader("🔗 Session Management")
+        st.subheader("👤 User Profile")
         
-        if st.session_state.session_id:
-            st.success(f"✅ Active Session")
+        if st.session_state.get("user"):
+            user = st.session_state.user
+            st.write(f"**Name:** {user.get('name', 'Unknown')}")
+            st.write(f"**Email:** {user.get('email', 'Unknown')}")
+            st.write(f"**User ID:** {st.session_state.get('user_id', 'Unknown')}")
+        
+        # Conversation Management
+        st.markdown("---")
+        st.subheader("💬 Conversation Management")
+        
+        if st.session_state.conversation_id:
+            st.success(f"✅ Active Conversation")
+            st.write(f"**Conversation ID:** {st.session_state.conversation_id}")
             
-            if st.button("🔄 New Session"):
-                st.session_state.session_id = None
+            if st.button("🔄 New Conversation"):
+                st.session_state.conversation_id = None
                 st.session_state.messages = [{
                     "role": "assistant",
-                    "content": "👋 New session started! Ask me anything about the financial documents."
+                    "content": "👋 New conversation started! Ask me anything about the financial documents."
                 }]
                 st.rerun()
         else:
-            st.info("🆕 No active session")
+            st.info("🆕 No active conversation")
             st.caption("A new session will be created with your first query")
         
         st.markdown("---")
-        def logout(user_id: str):
-            """Logout the user"""
-            st.session_state.user_id = None
-            st.session_state.session_id = None
-            st.session_state.messages = []
-        st.subheader("👤 Profile")
+        st.subheader("🚪 Logout")
         
         # Get user info from session state
         user = st.session_state.get("user", None)
         if user:
-            # Display user profile information
-            if user.get("profile_pic"):
-                st.image(user["profile_pic"], width=60)
-            st.write(f"**Name:** {user.get('name', 'Unknown')}")
-            st.write(f"**Email:** {user.get('email', 'Unknown')}")
-            user_id = user.get('email', 'streamlit_user')
+            if st.button("🚪 Logout", use_container_width=True):
+                # Clear all session state
+                st.session_state.user_id = None
+                st.session_state.user = None
+                st.session_state.auth_token = None
+                st.session_state.conversation_id = None
+                st.session_state.messages = []
+                st.rerun()
         else:
             st.write("**User:** Not logged in")
-            user_id = "streamlit_user"
-        
-        if st.button("🚪 Logout", use_container_width=True):
-            logout(user_id)
         
         # Add source statistics if available
         if "messages" in st.session_state and st.session_state.messages:
@@ -432,6 +446,10 @@ def show_rag_chat():
                     response = call_rag_api(prompt, config)
                     
                     if response and "answer" in response:
+                        # Store conversation_id from response
+                        if "conversation_id" in response:
+                            st.session_state.conversation_id = response["conversation_id"]
+                        
                         # Display response
                         st.write(response["answer"])
                         
@@ -447,7 +465,8 @@ def show_rag_chat():
                         assistant_msg = {
                             "role": "assistant",
                             "content": response["answer"],
-                            "sources": response.get("sources", [])
+                            "sources": response.get("sources", []),
+                            "conversation_id": response.get("conversation_id")
                         }
                         st.session_state.messages.append(assistant_msg)
                         
@@ -520,9 +539,20 @@ def show_rag_chat():
 
 
 def call_rag_api(query: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Call the RAG API endpoint with session management"""
+    """Call the RAG API endpoint with conversation management"""
     try:
         url = f"{config['api_base_url']}/rag/query"
+        
+        # Get JWT token from session state
+        auth_token = st.session_state.get("auth_token")
+        if not auth_token:
+            st.error("❌ Authentication required. Please log in again.")
+            return None
+        
+        headers = {
+            "Authorization": f"Bearer {auth_token}",
+            "Content-Type": "application/json"
+        }
         
         payload = {
             "query": query,
@@ -533,21 +563,19 @@ def call_rag_api(query: str, config: Dict[str, Any]) -> Dict[str, Any]:
             "enable_wikipedia_fallback": config["enable_wikipedia"],
             "temperature": config["temperature"],
             "max_tokens": config["max_tokens"],
-            "session_id": getattr(st.session_state, "session_id", None),  # Pass existing session
-            "user_id": getattr(st.session_state, "user_id", "streamlit_user"),
-            "create_session": True,  # Allow session creation
+            "conversation_id": getattr(st.session_state, "conversation_id", None),  # Pass existing conversation
+            "user_id": str(st.session_state.get("user_id", "anonymous")),
             "stream": True
         }
         
-        response = requests.post(url, json=payload, timeout=FRONTEND_REQUEST_TIMEOUT)
+        response = requests.post(url, json=payload, headers=headers, timeout=FRONTEND_REQUEST_TIMEOUT)
         response.raise_for_status()
         
         data = response.json()
         
-        # Store session_id for next request
-        if "session_id" in data and data["session_id"]:
-            if hasattr(st.session_state, "session_id"):
-                st.session_state.session_id = data["session_id"]
+        # Store conversation_id for next request
+        if "conversation_id" in data and data["conversation_id"]:
+            st.session_state.conversation_id = data["conversation_id"]
         
         return data
         

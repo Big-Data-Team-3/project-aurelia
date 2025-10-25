@@ -12,7 +12,7 @@ if "initialized" not in st.session_state:
     st.session_state.user_id = None
     st.session_state.user = None
     st.session_state.messages = []
-    st.session_state.session_id = None
+    st.session_state.conversation_id = None
     st.session_state.auth_token = None
 
 # 🚀 NEW: Check for restored user session from backend token
@@ -31,7 +31,7 @@ if not st.session_state.get("user_id") and not st.session_state.get("user"):
                 st.session_state.user_id = user_data["user"]["id"]
                 st.session_state.user = user_data["user"]
                 st.session_state.messages = []
-                st.session_state.session_id = None
+                st.session_state.conversation_id = None
                 st.session_state.oauth_processed = True
                 
                 print(f"🔍 app.py: Session state restored - user_id: {st.session_state.user_id}, user: {st.session_state.user.get('email', 'Unknown')}")

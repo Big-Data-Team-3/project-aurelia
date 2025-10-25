@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import secrets
 import requests
-from models.user import User, AuthToken
+from models import User, AuthToken
 from config.database import get_db
 from config.database import DATABASE_URL
 from pydantic import BaseModel
@@ -172,6 +172,34 @@ def create_auth_token(user_id: int, db: Session) -> str:
     db.commit()
     
     return token
+#endregion
+#region Authentication Dependency
+async def get_current_user_from_token(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    """Authentication dependency for protected endpoints"""
+    token = credentials.credentials
+    
+    # Check token in database
+    auth_token = db.query(AuthToken).filter(
+        AuthToken.token == token,
+        AuthToken.expires_at > datetime.utcnow()
+    ).first()
+    
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    # Get user
+    user = db.query(User).filter(User.id == auth_token.user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "profile_pic": user.profile_pic
+        }
+    }
 #endregion
 
 #
