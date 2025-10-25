@@ -1,0 +1,454 @@
+{
+  "Duration": {
+    "name": "Duration",
+    "definition": "Duration is a measure of the sensitivity of a bond's price to changes in interest rates. It represents the weighted average time until a bond's cash flows are received, where the weights are the present values of the cash flows.",
+    "key_components": [
+      "Weighted average time to maturity",
+      "Present value of cash flows",
+      "Interest rate sensitivity",
+      "Price volatility measure"
+    ],
+    "formulas": [
+      "Duration = Σ(t × PV(CF_t)) / Σ(PV(CF_t))",
+      "Modified Duration = Duration / (1 + y)",
+      "Price Change ≈ -Modified Duration × Δy × Price"
+    ],
+    "examples": [
+      "A 5-year bond with annual coupons has a duration of approximately 4.2 years",
+      "A zero-coupon bond's duration equals its time to maturity",
+      "Higher coupon bonds have shorter durations than lower coupon bonds"
+    ],
+    "use_cases": [
+      "Interest rate risk management",
+      "Portfolio immunization strategies",
+      "Asset-liability matching",
+      "Bond portfolio optimization"
+    ],
+    "page_references": [45, 46, 47],
+    "confidence_score": 0.95,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T10:30:00Z"
+  },
+  "Beta": {
+    "name": "Beta",
+    "definition": "Beta is a measure of a security's volatility in relation to the overall market. It quantifies the systematic risk of an investment relative to the market portfolio, indicating how much the security's returns move with market movements.",
+    "key_components": [
+      "Systematic risk measure",
+      "Market correlation coefficient",
+      "Volatility relative to market",
+      "Risk-return relationship"
+    ],
+    "formulas": [
+      "β = Cov(R_i, R_m) / Var(R_m)",
+      "β = ρ_im × (σ_i / σ_m)",
+      "Expected Return = R_f + β × (R_m - R_f)"
+    ],
+    "examples": [
+      "A stock with β = 1.2 moves 20% more than the market",
+      "A stock with β = 0.8 moves 20% less than the market",
+      "Market portfolio has β = 1.0 by definition"
+    ],
+    "use_cases": [
+      "Portfolio risk assessment",
+      "Capital Asset Pricing Model (CAPM)",
+      "Investment performance evaluation",
+      "Risk-adjusted return calculations"
+    ],
+    "page_references": [78, 79, 80],
+    "confidence_score": 0.92,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T10:35:00Z"
+  },
+  "Sharpe Ratio": {
+    "name": "Sharpe Ratio",
+    "definition": "The Sharpe Ratio is a risk-adjusted performance measure that calculates the excess return per unit of risk. It measures how much additional return an investment provides compared to the risk-free rate, relative to the investment's volatility.",
+    "key_components": [
+      "Risk-adjusted return measure",
+      "Excess return calculation",
+      "Volatility normalization",
+      "Performance comparison tool"
+    ],
+    "formulas": [
+      "Sharpe Ratio = (R_p - R_f) / σ_p",
+      "Where R_p = portfolio return, R_f = risk-free rate, σ_p = portfolio volatility"
+    ],
+    "examples": [
+      "A Sharpe ratio of 1.5 means 1.5 units of excess return per unit of risk",
+      "Higher Sharpe ratios indicate better risk-adjusted performance",
+      "Negative Sharpe ratios indicate underperformance relative to risk-free rate"
+    ],
+    "use_cases": [
+      "Investment performance evaluation",
+      "Portfolio optimization",
+      "Risk management assessment",
+      "Fund manager evaluation"
+    ],
+    "page_references": [112, 113, 114],
+    "confidence_score": 0.94,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T10:40:00Z"
+  },
+  "Value at Risk (VaR)": {
+    "name": "Value at Risk (VaR)",
+    "definition": "Value at Risk is a statistical measure that quantifies the maximum potential loss of a portfolio over a specific time period with a given confidence level. It represents the worst-case scenario loss that is not expected to be exceeded under normal market conditions.",
+    "key_components": [
+      "Maximum potential loss",
+      "Confidence level specification",
+      "Time horizon definition",
+      "Statistical risk measure"
+    ],
+    "formulas": [
+      "VaR = μ - z_α × σ",
+      "Where μ = mean return, z_α = critical value, σ = standard deviation",
+      "VaR = Portfolio Value × VaR percentage"
+    ],
+    "examples": [
+      "1-day 95% VaR of $1M means 95% confidence that daily loss won't exceed $1M",
+      "VaR can be calculated using historical, parametric, or Monte Carlo methods",
+      "VaR is widely used in risk management and regulatory reporting"
+    ],
+    "use_cases": [
+      "Risk management and control",
+      "Regulatory capital requirements",
+      "Portfolio risk assessment",
+      "Stress testing and scenario analysis"
+    ],
+    "page_references": [156, 157, 158, 159],
+    "confidence_score": 0.91,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T10:45:00Z"
+  },
+  "Monte Carlo Simulation": {
+    "name": "Monte Carlo Simulation",
+    "definition": "Monte Carlo Simulation is a computational method that uses random sampling to model and analyze complex systems with uncertainty. It generates thousands of possible outcomes by repeatedly sampling from probability distributions to estimate the range of possible results.",
+    "key_components": [
+      "Random sampling technique",
+      "Probability distribution modeling",
+      "Multiple scenario generation",
+      "Statistical analysis of outcomes"
+    ],
+    "formulas": [
+      "For each simulation: X_i = f(random_variables)",
+      "Result = statistical_analysis(X_1, X_2, ..., X_n)",
+      "Confidence intervals from percentile analysis"
+    ],
+    "examples": [
+      "Simulating 10,000 possible portfolio returns over next year",
+      "Modeling option pricing with random price movements",
+      "Risk assessment for complex derivative instruments"
+    ],
+    "use_cases": [
+      "Risk modeling and assessment",
+      "Option pricing and valuation",
+      "Portfolio optimization",
+      "Stress testing and scenario analysis"
+    ],
+    "page_references": [203, 204, 205, 206],
+    "confidence_score": 0.89,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T10:50:00Z"
+  },
+  "Black-Scholes Model": {
+    "name": "Black-Scholes Model",
+    "definition": "The Black-Scholes Model is a mathematical model for pricing European-style options. It provides a theoretical framework for determining the fair value of options based on underlying asset price, strike price, time to expiration, risk-free rate, and volatility.",
+    "key_components": [
+      "Option pricing formula",
+      "Risk-neutral valuation",
+      "Geometric Brownian motion",
+      "No-arbitrage assumption"
+    ],
+    "formulas": [
+      "C = S₀N(d₁) - Ke^(-rT)N(d₂)",
+      "P = Ke^(-rT)N(-d₂) - S₀N(-d₁)",
+      "d₁ = [ln(S₀/K) + (r + σ²/2)T] / (σ√T)",
+      "d₂ = d₁ - σ√T"
+    ],
+    "examples": [
+      "Pricing a call option on a stock trading at $100 with strike $105",
+      "Calculating implied volatility from market option prices",
+      "Hedging strategies using delta-neutral positions"
+    ],
+    "use_cases": [
+      "Option pricing and valuation",
+      "Implied volatility calculation",
+      "Risk management and hedging",
+      "Derivatives trading strategies"
+    ],
+    "page_references": [234, 235, 236, 237],
+    "confidence_score": 0.96,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T10:55:00Z"
+  },
+  "Capital Asset Pricing Model (CAPM)": {
+    "name": "Capital Asset Pricing Model (CAPM)",
+    "definition": "CAPM is a financial model that describes the relationship between systematic risk and expected return for assets. It states that the expected return of an asset equals the risk-free rate plus a risk premium based on the asset's beta coefficient.",
+    "key_components": [
+      "Risk-return relationship",
+      "Systematic risk measurement",
+      "Market risk premium",
+      "Beta coefficient"
+    ],
+    "formulas": [
+      "E(R_i) = R_f + β_i × [E(R_m) - R_f]",
+      "Where E(R_i) = expected return, R_f = risk-free rate, β_i = beta, E(R_m) = market return"
+    ],
+    "examples": [
+      "If risk-free rate is 3%, market return is 10%, and beta is 1.2, expected return = 3% + 1.2 × (10% - 3%) = 11.4%",
+      "High-beta stocks have higher expected returns",
+      "Low-beta stocks have lower expected returns"
+    ],
+    "use_cases": [
+      "Cost of equity calculation",
+      "Portfolio performance evaluation",
+      "Investment decision making",
+      "Risk-adjusted return assessment"
+    ],
+    "page_references": [89, 90, 91, 92],
+    "confidence_score": 0.93,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:00:00Z"
+  },
+  "Modern Portfolio Theory (MPT)": {
+    "name": "Modern Portfolio Theory (MPT)",
+    "definition": "Modern Portfolio Theory is an investment framework that focuses on maximizing portfolio returns for a given level of risk through diversification. It emphasizes that investors can reduce portfolio risk by combining assets with different risk-return characteristics.",
+    "key_components": [
+      "Diversification benefits",
+      "Risk-return optimization",
+      "Efficient frontier",
+      "Correlation analysis"
+    ],
+    "formulas": [
+      "Portfolio Return = Σ(w_i × R_i)",
+      "Portfolio Variance = ΣΣ(w_i × w_j × σ_ij)",
+      "Sharpe Ratio = (R_p - R_f) / σ_p"
+    ],
+    "examples": [
+      "Combining stocks and bonds to reduce overall portfolio risk",
+      "Finding optimal asset allocation on the efficient frontier",
+      "Achieving same return with lower risk through diversification"
+    ],
+    "use_cases": [
+      "Portfolio construction and optimization",
+      "Asset allocation decisions",
+      "Risk management strategies",
+      "Investment policy development"
+    ],
+    "page_references": [67, 68, 69, 70],
+    "confidence_score": 0.90,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:05:00Z"
+  },
+  "Arbitrage Pricing Theory (APT)": {
+    "name": "Arbitrage Pricing Theory (APT)",
+    "definition": "Arbitrage Pricing Theory is a multi-factor model that explains asset returns based on multiple systematic risk factors. Unlike CAPM, APT allows for multiple risk factors and doesn't require the assumption of a single market portfolio.",
+    "key_components": [
+      "Multi-factor risk model",
+      "Arbitrage-free pricing",
+      "Factor loadings",
+      "Risk factor identification"
+    ],
+    "formulas": [
+      "E(R_i) = R_f + β₁F₁ + β₂F₂ + ... + βₙFₙ",
+      "Where F_j = risk factor j, β_j = factor loading"
+    ],
+    "examples": [
+      "Stock returns explained by market, size, value, and momentum factors",
+      "Bond returns explained by interest rate, credit, and liquidity factors",
+      "Factor-based portfolio construction and risk management"
+    ],
+    "use_cases": [
+      "Multi-factor risk modeling",
+      "Portfolio risk decomposition",
+      "Factor-based investing",
+      "Risk attribution analysis"
+    ],
+    "page_references": [125, 126, 127, 128],
+    "confidence_score": 0.87,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:10:00Z"
+  },
+  "Greeks (Options)": {
+    "name": "Greeks (Options)",
+    "definition": "The Greeks are measures of sensitivity of option prices to various factors. They quantify how option values change with respect to underlying asset price, time decay, volatility, and interest rates, providing essential tools for options risk management.",
+    "key_components": [
+      "Delta: Price sensitivity",
+      "Gamma: Delta sensitivity",
+      "Theta: Time decay",
+      "Vega: Volatility sensitivity",
+      "Rho: Interest rate sensitivity"
+    ],
+    "formulas": [
+      "Δ = ∂C/∂S (Delta)",
+      "Γ = ∂²C/∂S² (Gamma)",
+      "Θ = ∂C/∂t (Theta)",
+      "ν = ∂C/∂σ (Vega)",
+      "ρ = ∂C/∂r (Rho)"
+    ],
+    "examples": [
+      "Delta of 0.5 means option price changes $0.50 for $1 change in underlying",
+      "Theta shows daily time decay of option value",
+      "Vega measures sensitivity to implied volatility changes"
+    ],
+    "use_cases": [
+      "Options risk management",
+      "Hedging strategies",
+      "Portfolio risk assessment",
+      "Options trading strategies"
+    ],
+    "page_references": [267, 268, 269, 270],
+    "confidence_score": 0.94,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:15:00Z"
+  },
+  "Credit Risk": {
+    "name": "Credit Risk",
+    "definition": "Credit risk is the risk of loss resulting from a borrower's failure to meet their financial obligations. It encompasses the probability of default, loss given default, and exposure at default, forming the foundation of credit risk management.",
+    "key_components": [
+      "Probability of Default (PD)",
+      "Loss Given Default (LGD)",
+      "Exposure at Default (EAD)",
+      "Credit rating systems"
+    ],
+    "formulas": [
+      "Expected Loss = PD × LGD × EAD",
+      "Credit VaR = Portfolio Value × Credit Risk Factor",
+      "Credit Spread = Corporate Yield - Risk-free Rate"
+    ],
+    "examples": [
+      "Corporate bond default probability assessment",
+      "Bank loan portfolio credit risk measurement",
+      "Credit derivative pricing and valuation"
+    ],
+    "use_cases": [
+      "Credit risk assessment and management",
+      "Regulatory capital calculation",
+      "Credit portfolio optimization",
+      "Credit derivative pricing"
+    ],
+    "page_references": [312, 313, 314, 315],
+    "confidence_score": 0.88,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:20:00Z"
+  },
+  "Liquidity Risk": {
+    "name": "Liquidity Risk",
+    "definition": "Liquidity risk is the risk that an entity cannot meet its short-term financial obligations or cannot quickly convert assets to cash without significant loss. It includes both funding liquidity risk and market liquidity risk.",
+    "key_components": [
+      "Funding liquidity risk",
+      "Market liquidity risk",
+      "Asset liquidity assessment",
+      "Cash flow management"
+    ],
+    "formulas": [
+      "Liquidity Ratio = Liquid Assets / Short-term Liabilities",
+      "Bid-Ask Spread = Ask Price - Bid Price",
+      "Market Impact = Price Change / Trade Size"
+    ],
+    "examples": [
+      "Bank unable to meet deposit withdrawals",
+      "Large trade causing significant price impact",
+      "Asset fire sales during market stress"
+    ],
+    "use_cases": [
+      "Liquidity risk management",
+      "Regulatory compliance",
+      "Asset-liability management",
+      "Market making strategies"
+    ],
+    "page_references": [341, 342, 343, 344],
+    "confidence_score": 0.85,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:25:00Z"
+  },
+  "Stress Testing": {
+    "name": "Stress Testing",
+    "definition": "Stress testing is a risk management technique that evaluates how a portfolio or financial institution would perform under extreme but plausible market conditions. It helps identify vulnerabilities and assess capital adequacy under adverse scenarios.",
+    "key_components": [
+      "Scenario design and selection",
+      "Shock application to risk factors",
+      "Portfolio impact assessment",
+      "Capital adequacy evaluation"
+    ],
+    "formulas": [
+      "Stress Loss = Portfolio Value × Stress Factor",
+      "Capital Ratio = Capital / Risk-Weighted Assets",
+      "Stress VaR = VaR under stressed conditions"
+    ],
+    "examples": [
+      "2008 financial crisis scenario testing",
+      "Interest rate shock of +300 basis points",
+      "Equity market decline of -40%"
+    ],
+    "use_cases": [
+      "Risk management and control",
+      "Regulatory compliance",
+      "Capital planning",
+      "Business continuity planning"
+    ],
+    "page_references": [378, 379, 380, 381],
+    "confidence_score": 0.86,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:30:00Z"
+  },
+  "Risk-Adjusted Return": {
+    "name": "Risk-Adjusted Return",
+    "definition": "Risk-adjusted return measures investment performance by considering the amount of risk taken to achieve returns. It allows for meaningful comparison of investments with different risk profiles by normalizing returns for risk levels.",
+    "key_components": [
+      "Return normalization",
+      "Risk measurement",
+      "Performance comparison",
+      "Risk-return trade-off"
+    ],
+    "formulas": [
+      "Sharpe Ratio = (R_p - R_f) / σ_p",
+      "Treynor Ratio = (R_p - R_f) / β_p",
+      "Information Ratio = (R_p - R_b) / Tracking Error"
+    ],
+    "examples": [
+      "Comparing mutual fund performance using Sharpe ratios",
+      "Evaluating hedge fund returns relative to risk taken",
+      "Assessing portfolio manager skill through risk-adjusted metrics"
+    ],
+    "use_cases": [
+      "Investment performance evaluation",
+      "Fund manager assessment",
+      "Portfolio optimization",
+      "Risk management analysis"
+    ],
+    "page_references": [115, 116, 117, 118],
+    "confidence_score": 0.92,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:35:00Z"
+  },
+  "Derivatives Pricing": {
+    "name": "Derivatives Pricing",
+    "definition": "Derivatives pricing involves determining the fair value of financial derivatives such as options, futures, and swaps. It uses mathematical models and market data to calculate theoretical prices based on underlying asset values and market conditions.",
+    "key_components": [
+      "Underlying asset modeling",
+      "Risk-neutral valuation",
+      "No-arbitrage pricing",
+      "Market data integration"
+    ],
+    "formulas": [
+      "Black-Scholes for European options",
+      "Binomial model for American options",
+      "Forward price = Spot × e^(rT)",
+      "Swap value = Present value of cash flows"
+    ],
+    "examples": [
+      "Pricing equity options using Black-Scholes model",
+      "Valuing interest rate swaps",
+      "Calculating futures contract fair value"
+    ],
+    "use_cases": [
+      "Derivatives valuation",
+      "Risk management",
+      "Trading strategies",
+      "Regulatory reporting"
+    ],
+    "page_references": [238, 239, 240, 241],
+    "confidence_score": 0.89,
+    "source_document": "fintbx.pdf",
+    "extracted_at": "2024-01-15T11:40:00Z"
+  }
+}
