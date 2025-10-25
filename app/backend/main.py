@@ -3,7 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import uvicorn
-
+import os
+import redis
 # Import RAG router
 from routers.rag import router as rag_router
 # Import auth router
@@ -35,15 +36,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # endregion
+# region Redis Memorystore setup
+REDIS_HOST = os.getenv("REDIS_HOST", "10.0.0.5")  # Replace with your Memorystore IP
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+cache_service.redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+# endregion
 # region Include RAG router
 # Include RAG router
 app.include_router(rag_router)
-#region Include auth router
+# endregion
+# region Include auth router
 app.include_router(auth_router)
 # endregion
-#region Include conversation router
+# region Include conversation router
 app.include_router(conversation_router)
-# endregion
 # endregion
 # region Application start time for uptime calculation
 # Application start time for uptime calculation
@@ -63,6 +69,16 @@ async def root():
         "rag_endpoints": "/rag/",
         "health_check": "/rag/health"
     }
+# endregion
+# region Cache test endpoint
+@app.get("/cache-test")
+def cache_test():
+    try:
+        cache_service.set("test_key", "hello", ex=60)
+        val = cache_service.get("test_key")
+        return {"status": "ok", "value": val}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 # endregion
 # region Startup event
 # Startup event
