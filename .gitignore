@@ -15,3 +15,4 @@ test_venv/
 __pycache__/
 
 data/
+config/
