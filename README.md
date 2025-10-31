@@ -101,13 +101,6 @@ ENABLE_WIKIPEDIA_FALLBACK=true
 
 ### 3. Start the System
 
-#### Option A: Automated Startup (Recommended)
-```bash
-cd app
-python start_rag.py
-```
-
-#### Option B: Manual Startup
 ```bash
 # Terminal 1: Start Backend
 cd app/backend
